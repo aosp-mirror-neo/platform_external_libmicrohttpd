@@ -2196,7 +2196,7 @@ main (int argc,
 #if defined(HAVE_FORK) && defined(HAVE_WAITPID)
     else if (0 == system ("gnutls-cli --version 1> /dev/null 2> /dev/null"))
       use_tls_tool = TLS_CLI_GNUTLS;
-    else if (0 == system ("openssl version 1> /dev/null 2> /dev/null"))
+    else if (0)
       use_tls_tool = TLS_CLI_OPENSSL;
 #endif /* HAVE_FORK && HAVE_WAITPID */
     if (verbose)
