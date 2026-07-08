@@ -2470,21 +2470,21 @@ psk_gnutls_adapter (gnutls_session_t session,
                                   &app_psk,
                                   &app_psk_size))
     return -1;
+  if (UINT_MAX < app_psk_size)
+  {
+#ifdef HAVE_MESSAGES
+    MHD_DLOG (daemon,
+              _ ("PSK authentication failed: PSK too long.\n"));
+#endif
+    free (app_psk);
+    return -1;
+  }
   if (NULL == (key->data = gnutls_malloc (app_psk_size)))
   {
 #ifdef HAVE_MESSAGES
     MHD_DLOG (daemon,
               _ ("PSK authentication failed: gnutls_malloc failed to " \
                  "allocate memory.\n"));
-#endif
-    free (app_psk);
-    return -1;
-  }
-  if (UINT_MAX < app_psk_size)
-  {
-#ifdef HAVE_MESSAGES
-    MHD_DLOG (daemon,
-              _ ("PSK authentication failed: PSK too long.\n"));
 #endif
     free (app_psk);
     return -1;
