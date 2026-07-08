@@ -1978,11 +1978,13 @@ run_mhd (void)
   }
   if (1)
   {
-    struct MHD_OptionItem option =
-    { MHD_OPTION_END, 0, NULL };
-    opt_arr[opt_count] = option;
+    struct MHD_OptionItem option = {
+      MHD_OPTION_END, 0, NULL
+    };
+
     if (opt_count >= (sizeof(opt_arr) / sizeof(opt_arr[0])))
       abort ();
+    opt_arr[opt_count] = option;
   }
   d = MHD_start_daemon (flags, mhd_port, NULL, NULL, reply_func, NULL,
                         MHD_OPTION_ARRAY, opt_arr, MHD_OPTION_END);
