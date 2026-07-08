@@ -1189,7 +1189,7 @@ pipe_reader (void *cls,
             buf,
             (MHD_SCKT_SEND_SIZE_) max);
 #else  /* _WIN32 */
-  if (UINT_MAX < max)
+  if (INT_MAX < max)
     max = INT_MAX;
   n = read (response->fd,
             buf,
