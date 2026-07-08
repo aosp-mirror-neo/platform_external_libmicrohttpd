@@ -2497,9 +2497,13 @@ add_user_headers (char *buf,
     }
 
     /* Add user header */
-    el_size = hdr->header_size + 2 + hdr->value_size + 2;
-    if (buf_size < *ppos + el_size)
+    /* Check available space using subtractions to avoid integer overflow.
+       '4' is two colons/space plus the final CRLF. */
+    if ( (buf_size - *ppos < 4) ||
+         (buf_size - *ppos - 4 < hdr->header_size) ||
+         (buf_size - *ppos - 4 - hdr->header_size < hdr->value_size) )
       return false;
+    el_size = hdr->header_size + 2 + hdr->value_size + 2;
     memcpy (buf + *ppos, hdr->header, hdr->header_size);
     (*ppos) += hdr->header_size;
     buf[(*ppos)++] = ':';
@@ -2816,9 +2820,12 @@ build_connection_chunked_response_footer (struct MHD_Connection *connection)
     {
       size_t new_used_size; /* resulting size with this header */
       /* '4' is colon, space, linefeeds */
-      new_used_size = used_size + pos->header_size + pos->value_size + 4;
-      if (new_used_size > buf_size)
+      /* Check available space using subtractions to avoid integer overflow. */
+      if ( (buf_size - used_size < 4) ||
+           (buf_size - used_size - 4 < pos->header_size) ||
+           (buf_size - used_size - 4 - pos->header_size < pos->value_size) )
         return MHD_NO;
+      new_used_size = used_size + pos->header_size + pos->value_size + 4;
       memcpy (buf + used_size, pos->header, pos->header_size);
       used_size += pos->header_size;
       buf[used_size++] = ':';
