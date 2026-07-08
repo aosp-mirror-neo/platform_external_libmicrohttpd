@@ -1378,6 +1378,8 @@ MHD_digest_auth_get_username3 (struct MHD_Connection *connection)
   uname_info = (struct MHD_DigestAuthUsernameInfo *)
                MHD_calloc_ (1, (sizeof(struct MHD_DigestAuthUsernameInfo))
                             + unif_buf_size);
+  if (NULL == uname_info)
+    return NULL;
   unif_buf_ptr = (uint8_t *) (uname_info + 1);
   unif_buf_used = get_rq_uname (params, uname_type, uname_info, unif_buf_ptr,
                                 unif_buf_size);
