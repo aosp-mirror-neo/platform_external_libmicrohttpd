@@ -1,3 +1,11 @@
+Wed Jul  8 12:47:35 PM CEST 2026
+Released GNU libmicrohttpd 1.0.6.
+
+    This is a bugfix release, fixing minor bugs mostly in error handling,
+    theoretical integer overflows, and rare memory leaks.
+
+    -- Christian Grothoff
+
 Thu Apr 16 10:36:54 AM CEST 2026
 Released GNU libmicrohttpd 1.0.5.
 
