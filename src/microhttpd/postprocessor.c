@@ -595,16 +595,12 @@ try_match_header (const char *prefix,
 {
   if (NULL != *suffix)
     return MHD_NO;
-  while (0 != *line)
+  if (MHD_str_equal_caseless_n_ (prefix,
+                                 line,
+                                 prefix_len))
   {
-    if (MHD_str_equal_caseless_n_ (prefix,
-                                   line,
-                                   prefix_len))
-    {
-      *suffix = strdup (&line[prefix_len]);
-      return MHD_YES;
-    }
-    ++line;
+    *suffix = strdup (&line[prefix_len]);
+    return MHD_YES;
   }
   return MHD_NO;
 }
