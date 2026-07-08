@@ -352,8 +352,8 @@ add_response_header_connection (struct MHD_Response *response,
                                        key, key_len);
     already_has_close =
       (0 != (response->flags_auto & MHD_RAF_HAS_CONNECTION_CLOSE));
-    mhd_assert (already_has_close == (0 == memcmp (hdr->value, "close", 5)));
     mhd_assert (NULL != hdr);
+    mhd_assert (already_has_close == (0 == memcmp (hdr->value, "close", 5)));
   }
   else
   {
