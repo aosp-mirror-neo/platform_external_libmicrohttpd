@@ -2495,11 +2495,9 @@ is_param_equal_caseless (const struct MHD_RqDAuthParam *param,
                                                 str,
                                                 str_len);
   return (str_len == param->value.len) &&
-         (0 ==
-          MHD_str_equal_caseless_bin_n_ (str,
+         (MHD_str_equal_caseless_bin_n_ (str,
                                          param->value.str,
                                          str_len));
-
 }
 
 
@@ -3000,8 +2998,12 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
     digest_update_with_colon (da);
   }
   /* Update digest with H(A2) */
-  MHD_bin_to_hex (hash2_bin, digest_size, tmp1);
-  digest_update (da, (const uint8_t *) tmp1, digest_size * 2);
+  MHD_bin_to_hex (hash2_bin,
+                  digest_size,
+                  tmp1);
+  digest_update (da,
+                 (const uint8_t *) tmp1,
+                 digest_size * 2);
 
   /* H(A2) is not needed anymore, reuse the buffer.
    * Use hash2_bin for the calculated response in binary form */
@@ -3011,7 +3013,9 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
     return MHD_DAUTH_ERROR;
 #endif /* MHD_DIGEST_HAS_EXT_ERROR */
 
-  if (0 != memcmp (hash1_bin, hash2_bin, digest_size))
+  if (0 != memcmp (hash1_bin,
+                   hash2_bin,
+                   digest_size))
     return MHD_DAUTH_RESPONSE_WRONG;
 
   if (MHD_DAUTH_BIND_NONCE_NONE != daemon->dauth_bind_type)
