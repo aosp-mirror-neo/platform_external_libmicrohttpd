@@ -4278,13 +4278,15 @@ MHD_get_timeout64 (struct MHD_Daemon *daemon,
     earliest_deadline = pos->last_activity + pos->connection_timeout_ms;
   }
 
-  for (pos = daemon->manual_timeout_tail; NULL != pos; pos = pos->prevX)
+  for (pos = daemon->manual_timeout_tail;
+       NULL != pos;
+       pos = pos->prevX)
   {
     if (0 != pos->connection_timeout_ms)
     {
       if ( (NULL == earliest_tmot_conn) ||
-           (earliest_deadline - pos->last_activity >
-            pos->connection_timeout_ms) )
+           (earliest_deadline >
+            pos->last_activity + pos->connection_timeout_ms) )
       {
         earliest_tmot_conn = pos;
         earliest_deadline = pos->last_activity + pos->connection_timeout_ms;
