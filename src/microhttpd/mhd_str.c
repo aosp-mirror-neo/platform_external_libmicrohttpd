@@ -872,7 +872,7 @@ MHD_str_remove_token_caseless_ (const char *str,
   mhd_assert (NULL == memchr (token, ',', token_len));
   mhd_assert (0 <= *buf_size);
 
-  if (SSIZE_MAX <= ((str_len / 2) * 3 + 3))
+  if ((str_len / 2) >= (((size_t) SSIZE_MAX - 1) / 3))
   {
     /* The return value may overflow, refuse */
     *buf_size = (ssize_t) -1;
