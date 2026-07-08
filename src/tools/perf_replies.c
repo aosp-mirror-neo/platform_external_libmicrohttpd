@@ -361,7 +361,6 @@ show_help (void)
 
 struct PerfRepl_parameters
 {
-  unsigned int port;
   int all_cpus;
   unsigned int threads;
   int thread_per_conn;
@@ -384,29 +383,7 @@ struct PerfRepl_parameters
   int version;
 };
 
-static struct PerfRepl_parameters tool_params = {
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0
-};
+static struct PerfRepl_parameters tool_params;
 
 
 static enum PerfRepl_param_result
@@ -1208,10 +1185,10 @@ print_all_cores_used (void)
 static void
 check_param_port (void)
 {
-  if (0 != tool_params.port)
+  if (0 != mhd_port)
     return;
   if (MHD_NO == MHD_is_feature_supported (MHD_FEATURE_AUTODETECT_BIND_PORT))
-    tool_params.port = PERF_REPL_PORT_FALLBACK;
+    mhd_port = PERF_REPL_PORT_FALLBACK;
 }
 
 
