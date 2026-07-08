@@ -527,7 +527,9 @@ del_response_header_connection (struct MHD_Response *response,
   if (NULL == hdr)
     return MHD_NO;
 
-  if (! MHD_str_remove_tokens_caseless_ (hdr->value, &hdr->value_size, value,
+  if (! MHD_str_remove_tokens_caseless_ (hdr->value,
+                                         &hdr->value_size,
+                                         value,
                                          strlen (value)))
     return MHD_NO;
   if (0 == hdr->value_size)
@@ -544,11 +546,13 @@ del_response_header_connection (struct MHD_Response *response,
   {
     hdr->value[hdr->value_size] = 0; /* Null-terminate the result */
     if (0 != (response->flags_auto
-              & ~((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_CONNECTION_CLOSE)))
+              & ((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_CONNECTION_CLOSE)))
     {
       if (MHD_STATICSTR_LEN_ ("close") == hdr->value_size)
       {
-        if (0 != memcmp (hdr->value, "close", MHD_STATICSTR_LEN_ ("close")))
+        if (0 != memcmp (hdr->value,
+                         "close",
+                         MHD_STATICSTR_LEN_ ("close")))
           response->flags_auto &=
             ~((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_CONNECTION_CLOSE);
       }
