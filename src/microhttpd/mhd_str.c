@@ -1773,9 +1773,8 @@ MHD_str_pct_decode_strict_n_ (const char *pct_encoded,
       const char chr = pct_encoded[r];
       if ('%' == chr)
       {
-        if (2 > pct_encoded_len - r)
+        if (3 > pct_encoded_len - r)
           return 0;
-        else
         {
           const char c1 = pct_encoded[++r];
           const char c2 = pct_encoded[++r];
@@ -1805,9 +1804,8 @@ MHD_str_pct_decode_strict_n_ (const char *pct_encoded,
       return 0;
     if ('%' == chr)
     {
-      if (2 > pct_encoded_len - r)
+      if (3 > pct_encoded_len - r)
         return 0;
-      else
       {
         const char c1 = pct_encoded[++r];
         const char c2 = pct_encoded[++r];
@@ -1853,7 +1851,7 @@ MHD_str_pct_decode_lenient_n_ (const char *pct_encoded,
       const char chr = pct_encoded[r];
       if ('%' == chr)
       {
-        if (2 > pct_encoded_len - r)
+        if (3 > pct_encoded_len - r)
         {
           if (NULL != broken_encoding)
             *broken_encoding = true;
@@ -1897,7 +1895,7 @@ MHD_str_pct_decode_lenient_n_ (const char *pct_encoded,
       return 0;
     if ('%' == chr)
     {
-      if (2 > pct_encoded_len - r)
+      if (3 > pct_encoded_len - r)
       {
         if (NULL != broken_encoding)
           *broken_encoding = true;
