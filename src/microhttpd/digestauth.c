@@ -2490,10 +2490,15 @@ is_param_equal_caseless (const struct MHD_RqDAuthParam *param,
   mhd_assert (NULL != param->value.str);
   mhd_assert (0 != param->value.len);
   if (param->quoted)
-    return MHD_str_equal_quoted_bin_n (param->value.str, param->value.len,
-                                       str, str_len);
+    return MHD_str_equal_caseless_quoted_bin_n (param->value.str,
+                                                param->value.len,
+                                                str,
+                                                str_len);
   return (str_len == param->value.len) &&
-         (0 == memcmp (str, param->value.str, str_len));
+         (0 ==
+          MHD_str_equal_caseless_bin_n_ (str,
+                                         param->value.str,
+                                         str_len));
 
 }
 
