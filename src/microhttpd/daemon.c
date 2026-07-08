@@ -959,9 +959,9 @@ urh_from_pollfd (struct MHD_UpgradeResponseHandle *urh,
   if (0 != (p[1].revents & POLLOUT))
     urh->mhd.celi |= MHD_EPOLL_STATE_WRITE_READY;
   if (0 != (p[1].revents & POLLHUP))
-    urh->mhd.celi |= MHD_EPOLL_STATE_ERROR;
-  if (0 != (p[1].revents & MHD_POLL_REVENTS_ERRROR))
     urh->mhd.celi |= MHD_EPOLL_STATE_READ_READY | MHD_EPOLL_STATE_WRITE_READY;
+  if (0 != (p[1].revents & MHD_POLL_REVENTS_ERRROR))
+    urh->mhd.celi |= MHD_EPOLL_STATE_ERROR;
 }
 
 
