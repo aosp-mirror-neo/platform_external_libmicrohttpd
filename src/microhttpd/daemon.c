@@ -8914,7 +8914,6 @@ MHD_start_daemon_va (unsigned int flags,
 #endif
           /* Free memory for this worker; cleanup below handles
            * all previously-created workers. */
-          MHD_mutex_destroy_chk_ (&d->cleanup_connection_mutex);
           if (MHD_ITC_IS_VALID_ (d->itc))
             MHD_itc_destroy_chk_ (d->itc);
           MHD_mutex_destroy_chk_ (&d->new_connections_mutex);
