@@ -466,7 +466,7 @@ MHD_SHA256_update (struct Sha256Ctx *ctx,
 /**
  * Finalise SHA256 calculation, return digest.
  *
- * @param ctx_ must be a `struct Sha256Ctx *`
+ * @param ctx must be a `struct Sha256Ctx *`
  * @param[out] digest set to the hash, must be #SHA256_DIGEST_SIZE bytes
  */
 void

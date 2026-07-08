@@ -18,7 +18,7 @@
 */
 
 /**
- * @file microhttpd/sha256_ext.h
+ * @file microhttpd/sha256_ext.c
  * @brief  Wrapper for SHA-256 calculation performed by TLS library
  * @author Karlson2k (Evgeny Grin)
  */

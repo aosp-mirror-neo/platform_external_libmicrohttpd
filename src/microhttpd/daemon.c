@@ -1145,7 +1145,7 @@ internal_get_fdset2 (struct MHD_Daemon *daemon,
               _ ("Maximum socket in select set: %d\n"),
               *max_fd);
 #endif
-#endif /* HTTPS_SUPPORT && UPGRADE_SUPPORT */
+#endif 
   return result;
 }
 
