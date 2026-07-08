@@ -972,7 +972,7 @@ MHD_set_connection_value_n_nocheck_ (struct MHD_Connection *connection,
   struct MHD_HTTP_Req_Header *pos;
 
   pos = MHD_connection_alloc_memory_ (connection,
-                                      sizeof (struct MHD_HTTP_Res_Header));
+                                      sizeof (struct MHD_HTTP_Req_Header));
   if (NULL == pos)
     return MHD_NO;
   pos->header = key;
@@ -981,6 +981,7 @@ MHD_set_connection_value_n_nocheck_ (struct MHD_Connection *connection,
   pos->value_size = value_size;
   pos->kind = kind;
   pos->next = NULL;
+  pos->prev = NULL;
   /* append 'pos' to the linked list of headers */
   if (NULL == connection->rq.headers_received_tail)
   {
@@ -1593,7 +1594,7 @@ try_ready_chunked_body (struct MHD_Connection *connection,
   ssize_t ret;
   struct MHD_Response *response;
   static const size_t max_chunk = 0xFFFFFF;
-  char chunk_hdr[6];            /* 6: max strlen of "FFFFFF" */
+  char chunk_hdr[7];            /* 6: max strlen of "FFFFFF" */
   /* "FFFFFF" + "\r\n" */
   static const size_t max_chunk_hdr_len = sizeof(chunk_hdr) + 2;
   /* "FFFFFF" + "\r\n" + "\r\n" (chunk termination) */
@@ -1730,7 +1731,8 @@ try_ready_chunked_body (struct MHD_Connection *connection,
                                "more data than requested)."));
     return MHD_NO;
   }
-  chunk_hdr_len = MHD_uint32_to_strx ((uint32_t) ret, chunk_hdr,
+  chunk_hdr_len = MHD_uint32_to_strx ((uint32_t) ret,
+                                      chunk_hdr,
                                       sizeof(chunk_hdr));
   mhd_assert (chunk_hdr_len != 0);
   mhd_assert (chunk_hdr_len < sizeof(chunk_hdr));
