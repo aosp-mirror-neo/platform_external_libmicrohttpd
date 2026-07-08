@@ -304,7 +304,8 @@ add_response_entry (struct MHD_Response *response,
 
   if (NULL == content)
     return MHD_NO;
-
+  if (NULL == header)
+    return MHD_NO;
   header_len = strlen (header);
   content_len = strlen (content);
   return add_response_entry_n (response, kind, header,
