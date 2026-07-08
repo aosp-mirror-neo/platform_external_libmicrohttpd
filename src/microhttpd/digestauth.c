@@ -1291,6 +1291,8 @@ MHD_digest_auth_get_request_info3 (struct MHD_Connection *connection)
     unif_buf_size += params->realm.value.len + 1;   /* Add one for zero-termination */
   info = (struct MHD_DigestAuthInfo *)
          MHD_calloc_ (1, (sizeof(struct MHD_DigestAuthInfo)) + unif_buf_size);
+  if (NULL == info)
+    return NULL;
   unif_buf_ptr = (uint8_t *) (info + 1);
   unif_buf_used = 0;
 
