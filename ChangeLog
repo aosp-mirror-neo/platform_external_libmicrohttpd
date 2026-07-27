@@ -1,3 +1,9 @@
+Mon Jul 27 06:12:03 PM CEST 2026
+    Fixing various vulnerabilities reported by A. Ramos resulting
+    in possible crashes or out-of-bounds stack writes for certain
+    requests in specific configurations.
+    Releasing GNU libmicrohttpd 1.0.7. -CG
+
 Wed Jul  8 12:32:30 PM CEST 2026
     Fix various minor issues, like theoretical
     integer overflows for extreme inputs or NULL
