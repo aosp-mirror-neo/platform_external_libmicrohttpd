@@ -2959,7 +2959,12 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
                                 &unquoted);
   if (_MHD_UNQ_OK != unq_res)
     return MHD_DAUTH_ERROR;
-  if (digest_size != MHD_hex_to_bin (unquoted.str, unquoted.len, hash1_bin))
+  if (unquoted.len > MAX_AUTH_RESPONSE_LENGTH)
+    return MHD_DAUTH_ERROR;
+  if (digest_size !=
+      MHD_hex_to_bin (unquoted.str,
+                      unquoted.len,
+                      hash1_bin))
     return MHD_DAUTH_RESPONSE_WRONG;
 
   /* Update digest with ':' */
