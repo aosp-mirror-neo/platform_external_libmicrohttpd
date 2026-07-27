@@ -75,7 +75,7 @@
  * Trim value to the TIMESTAMP_BIN_SIZE size
  */
 #define TRIM_TO_TIMESTAMP(value) \
-  ((value) & ((UINT64_C (1) << (TIMESTAMP_BIN_SIZE * 8)) - 1))
+        ((value) & ((UINT64_C (1) << (TIMESTAMP_BIN_SIZE * 8)) - 1))
 
 
 /**
@@ -90,7 +90,7 @@
  * @param digest_size digest size
  */
 #define NONCE_STD_LEN(digest_size) \
-  ((digest_size) * 2 + TIMESTAMP_CHARS_LEN)
+        ((digest_size) * 2 + TIMESTAMP_CHARS_LEN)
 
 
 #ifdef MHD_SHA512_256_SUPPORT
@@ -149,7 +149,7 @@
  * Check that @a n is below #MAX_DIGEST
  */
 #define VLA_CHECK_LEN_DIGEST(n) \
-  do { if ((n) > MAX_DIGEST) MHD_PANIC (_ ("VLA too big.\n")); } while (0)
+        do { if ((n) > MAX_DIGEST) MHD_PANIC (_ ("VLA too big.\n")); } while (0)
 
 /**
  * Maximum length of a username for digest authentication.
@@ -175,7 +175,7 @@
  * The minimal size of the prefix for parameter with the extended notation
  */
 #define MHD_DAUTH_EXT_PARAM_MIN_LEN \
-  MHD_STATICSTR_LEN_ (MHD_DAUTH_EXT_PARAM_PREFIX "'")
+        MHD_STATICSTR_LEN_ (MHD_DAUTH_EXT_PARAM_PREFIX "'")
 
 /**
  * The result of nonce-nc map array check.
@@ -426,8 +426,8 @@ digest_deinit (struct DigestAlgorithm *da)
 
 
 #else  /* ! MHD_DIGEST_HAS_DEINIT */
-#define digest_setup_zero(da) (void)0
-#define digest_deinit(da) (void)0
+#define digest_setup_zero(da) (void) 0
+#define digest_deinit(da) (void) 0
 #endif /* ! MHD_DIGEST_HAS_DEINIT */
 
 
@@ -2589,6 +2589,8 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
   /* Check whether client's algorithm is allowed by function parameter */
   if (((unsigned int) c_algo) !=
       (((unsigned int) c_algo) & ((unsigned int) malgo3)))
+    return MHD_DAUTH_WRONG_ALGO;
+  if (MHD_DIGEST_AUTH_ALGO3_INVALID == c_algo)
     return MHD_DAUTH_WRONG_ALGO;
   /* Check whether client's algorithm is supported */
   if (0 != (((unsigned int) c_algo) & MHD_DIGEST_AUTH_ALGO3_SESSION))
