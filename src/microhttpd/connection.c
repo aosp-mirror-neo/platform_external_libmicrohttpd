@@ -4651,13 +4651,13 @@ process_request_body (struct MHD_Connection *connection)
                 if (i + 1 == available)
                   break; /* need more data */
                 if ('\n' == buffer_head[i + 1])
-                  chunk_size_line_len = i; /* Valid chunk header */
+                  chunk_size_line_len = i + 2; /* Valid chunk header */
               }
               else
               {
                 mhd_assert ('\n' == buffer_head[i]);
                 if (bare_lf_as_crlf)
-                  chunk_size_line_len = i; /* Valid chunk header */
+                  chunk_size_line_len = i + 1; /* Valid chunk header */
               }
               /* The chunk header is broken
                  if chunk_size_line_len is zero here. */
