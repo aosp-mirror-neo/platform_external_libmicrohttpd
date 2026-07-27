@@ -6657,12 +6657,28 @@ get_req_headers (struct MHD_Connection *c, bool process_footers)
        */
       const char *last_elmnt_end;
       size_t shift_back_size;
+
       if (NULL != c->rq.headers_received_tail)
-        last_elmnt_end =
-          c->rq.headers_received_tail->value
-          + c->rq.headers_received_tail->value_size;
+      {
+        if (NULL == c->rq.headers_received_tail->value)
+        {
+          /* Tailing query argument without '=', we only have the header */
+          last_elmnt_end =
+            c->rq.headers_received_tail->header
+            + c->rq.headers_received_tail->header_size;
+        }
+        else
+        {
+          last_elmnt_end =
+            c->rq.headers_received_tail->value
+            + c->rq.headers_received_tail->value_size;
+        }
+      }
       else
+      {
         last_elmnt_end = c->rq.version + HTTP_VER_LEN;
+      }
+      mhd_assert (NULL != last_elmnt_end);
       mhd_assert ((last_elmnt_end + 1) < c->read_buffer);
       shift_back_size = (size_t) (c->read_buffer - (last_elmnt_end + 1));
       if (0 != c->read_buffer_offset)
