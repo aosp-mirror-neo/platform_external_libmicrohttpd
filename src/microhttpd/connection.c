@@ -8335,6 +8335,28 @@ MHD_queue_response (struct MHD_Connection *connection,
 #endif
       return MHD_NO;
     }
+    if (MHD_CONN_MUST_CLOSE == connection->keepalive)
+    {
+      /* MHD has already decided, while parsing the request, that this
+       * connection cannot be reused; 'keepalive_possible()' therefore
+       * returns MHD_CONN_MUST_CLOSE rather than MHD_CONN_MUST_UPGRADE
+       * for it, and 'build_header_response()' asserts that an upgrade
+       * reply is only ever built for MHD_CONN_MUST_UPGRADE.  Refuse the
+       * response here instead of aborting there.
+       *
+       * The application cannot test for this itself: the request that
+       * triggers it looks perfectly well-formed to the access handler.
+       * A request carrying both "Content-Length" and
+       * "Transfer-Encoding: chunked" is the shortest way in and needs
+       * no non-default daemon options at all. */
+#ifdef HAVE_MESSAGES
+      MHD_DLOG (daemon,
+                _ ("Connection cannot be upgraded: it has already been " \
+                   "marked as \"must close\" while the request was " \
+                   "being parsed.\n"));
+#endif
+      return MHD_NO;
+    }
   }
 #endif /* UPGRADE_SUPPORT */
   if (MHD_HTTP_SWITCHING_PROTOCOLS == status_code)
