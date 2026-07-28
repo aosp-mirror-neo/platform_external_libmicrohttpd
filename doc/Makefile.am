@@ -22,6 +22,7 @@ microhttpd_TEXINFOS = \
   gpl-2.0.texi \
   fdl-1.3.texi
 microhttpd_tutorial_TEXINFOS = \
+  chapters/asyncresponses.inc \
   chapters/basicauthentication.inc \
   chapters/bibliography.inc \
   chapters/callbackresponse.inc \

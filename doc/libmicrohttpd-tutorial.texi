@@ -68,6 +68,7 @@ Free Documentation License".
 * Improved processing of POST data::
 * Session management::
 * Generating responses on the fly::
+* Answering from another thread::
 * Adding a layer of security::
 * Upgrading connections::
 * Bibliography::
@@ -111,6 +112,10 @@ Free Documentation License".
 @chapter Generating responses on the fly
 @include chapters/callbackresponse.inc
 
+@node Answering from another thread
+@chapter Answering from another thread
+@include chapters/asyncresponses.inc
+
 @node Adding a layer of security
 @chapter Adding a layer of security
 @include chapters/tlsauthentication.inc
@@ -138,6 +143,7 @@ Free Documentation License".
 * largepost.c::
 * sessions.c::
 * callbackresponse.c::
+* asyncresponse.c::
 * tlsauthentication.c::
 * upgrade.c::
 @end menu
@@ -188,6 +194,12 @@ Free Documentation License".
 @section callbackresponse.c
 @smalldisplay
 @verbatiminclude examples/callbackresponse.c
+@end smalldisplay
+
+@node asyncresponse.c
+@section asyncresponse.c
+@smalldisplay
+@verbatiminclude examples/asyncresponse.c
 @end smalldisplay
 
 @node tlsauthentication.c

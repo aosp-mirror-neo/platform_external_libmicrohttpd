@@ -2482,9 +2482,26 @@ make sure to run @code{MHD_run} afterwards (before again calling
 the set returned by @code{MHD_get_fdset} and you may end up with a
 connection that is stuck until the next network activity.
 
+This function may be called from any thread, which is what makes it
+usable to hand work to threads of your own.  In ``external'' select
+mode it writes to the inter-thread communication channel that
+@code{MHD_ALLOW_SUSPEND_RESUME} sets up, and since
+@code{MHD_get_fdset} adds the reading end of that channel to the read
+set, a call from another thread interrupts a @code{select} that your
+application is blocked in.  That matters because
+@code{MHD_get_timeout} reports no timeout at all while every
+connection is suspended, so your application would otherwise block
+indefinitely.  The channel is level triggered, so a resume issued
+between @code{MHD_get_fdset} and @code{select} cannot be lost.
+
 You can check whether a connection is currently suspended using
 @code{MHD_get_connection_info} by querying for
 @code{MHD_CONNECTION_INFO_CONNECTION_SUSPENDED}.
+
+A worked example of suspending connections while worker threads
+produce the answers, driven by an external @code{select} loop, is
+given in the chapter ``Answering from another thread'' of the MHD
+tutorial.
 
 @table @var
 @item connection

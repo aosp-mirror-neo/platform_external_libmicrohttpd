@@ -367,6 +367,12 @@ million times and burns a full core; the same callback suspending the
 connection is entered exactly once more and the daemon uses no
 measurable CPU time at all.
 
+Suspending brings requirements of its own---on who may call what from
+which thread, on how a worker thread wakes up a blocked event loop, and
+on who releases the shared state when a client disappears halfway
+through.  @ref{Answering from another thread} works all of that out on
+a complete program.
+
 
 @heading Trailers
 
@@ -456,7 +462,10 @@ handle in the context struct, and suspend the connection whenever the
 buffer is empty.  Do not forget @code{MHD_ALLOW_SUSPEND_RESUME} when
 starting the daemon.  Then remove the call to
 @code{MHD_suspend_connection()}, leaving only the @code{return 0}, and
-compare the CPU usage of the server process.
+compare the CPU usage of the server process.  A complete solution,
+together with the ownership rules that a shared buffer between a
+worker and the event loop needs, is the subject of
+@ref{Answering from another thread}.
 
 @item
 Compute a checksum over the generated document while it is being sent

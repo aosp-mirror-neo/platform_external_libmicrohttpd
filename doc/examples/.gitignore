@@ -1,3 +1,5 @@
+/asyncresponse
+/test_asyncresponse
 /upgrade
 /tlsauthentication
 /simplepost
@@ -12,3 +14,6 @@
 *.o
 *.lo
 *.la
+# Produced by the automake test harness
+*.log
+*.trs

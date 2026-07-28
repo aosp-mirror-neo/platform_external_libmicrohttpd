@@ -3,7 +3,7 @@ SUBDIRS  = .
 
 AM_CPPFLAGS = \
   -I$(top_srcdir)/src/include \
-  $(CPPFLAGS_ac)
+  $(CPPFLAGS_ac) $(LIBCURL_CPPFLAGS)
 
 AM_CFLAGS = $(CFLAGS_ac) @LIBGCRYPT_CFLAGS@
 
@@ -41,17 +41,44 @@ endif
 endif
 
 if HAVE_POSTPROCESSOR
-noinst_PROGRAMS += simplepost largepost sessions 
+noinst_PROGRAMS += simplepost largepost sessions
+endif
+
+if HAVE_POSIX_THREADS
+noinst_PROGRAMS += asyncresponse
+if HAVE_FORK_WAITPID
+if RUN_LIBCURL_TESTS
+check_PROGRAMS = test_asyncresponse
+TESTS = $(check_PROGRAMS)
+endif
+endif
 endif
 
 if HAVE_W32
 AM_CPPFLAGS += -DWINDOWS
 endif
 
+asyncresponse_SOURCES = \
+ asyncresponse.c
+asyncresponse_CFLAGS = \
+ $(AM_CFLAGS) $(PTHREAD_CFLAGS)
+asyncresponse_LDADD = \
+ $(PTHREAD_LIBS) \
+ $(top_builddir)/src/microhttpd/libmicrohttpd.la
+
+test_asyncresponse_SOURCES = \
+ test_asyncresponse.c
+test_asyncresponse_CFLAGS = \
+ $(AM_CFLAGS) $(PTHREAD_CFLAGS)
+test_asyncresponse_LDADD = \
+ $(PTHREAD_LIBS) \
+ $(top_builddir)/src/microhttpd/libmicrohttpd.la \
+ @LIBCURL@
+
 basicauthentication_SOURCES = \
- basicauthentication.c 
+ basicauthentication.c
 basicauthentication_LDADD = \
- $(top_builddir)/src/microhttpd/libmicrohttpd.la 
+ $(top_builddir)/src/microhttpd/libmicrohttpd.la
 
 callbackresponse_SOURCES = \
  callbackresponse.c
