@@ -2177,6 +2177,23 @@ struct MHD_Daemon
    * Mutex for any access to the "new connections" DL-list.
    */
   MHD_mutex_ new_connections_mutex;
+
+  /**
+   * Mutex serialising the listening socket's membership of the epoll
+   * set: @a listen_socket_in_epoll, @a was_quiesced and the
+   * epoll_ctl() calls that act on them.
+   *
+   * MHD_epoll() runs on the polling thread and MHD_quiesce_daemon() on
+   * the application's; both test those flags and then add or remove the
+   * listening socket, and without this lock the test and the act are
+   * two steps, so both can decide to remove it and the loser gets
+   * ENOENT.  A dedicated mutex rather than @a cleanup_connection_mutex:
+   * that one is held across an application callback
+   * (@a notify_completed, in resume_suspended_connections()), so reusing
+   * it would let an application deadlock itself by calling
+   * MHD_quiesce_daemon() from that callback.
+   */
+  MHD_mutex_ epoll_listen_mutex;
 #endif
 
   /**

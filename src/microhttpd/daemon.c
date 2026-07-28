@@ -1355,7 +1355,26 @@ call_handlers (struct MHD_Connection *con,
        (read_ready || (force_close && con->sk_nonblck)) )
   {
     MHD_connection_handle_read (con, force_close);
-    mhd_assert (! force_close || MHD_CONNECTION_CLOSED == con->state);
+    /* MHD_connection_handle_read() closes the connection when
+       @a force_close is set, but only once it gets far enough to try.
+       It returns early, leaving 'con->state' untouched, in three cases,
+       and all three are reachable from here:
+         - the connection is suspended,
+         - a TLS handshake is still in progress,
+         - the read buffer has no free space at all. */
+#ifdef HTTPS_SUPPORT
+    mhd_assert ((! force_close) || \
+                (MHD_CONNECTION_CLOSED == con->state) || \
+                (con->suspended) || \
+                ( (MHD_TLS_CONN_NO_TLS != con->tls_state) && \
+                  (MHD_TLS_CONN_CONNECTED > con->tls_state) ) || \
+                (con->read_buffer_size == con->read_buffer_offset));
+#else  /* ! HTTPS_SUPPORT */
+    mhd_assert ((! force_close) || \
+                (MHD_CONNECTION_CLOSED == con->state) || \
+                (con->suspended) || \
+                (con->read_buffer_size == con->read_buffer_offset));
+#endif /* ! HTTPS_SUPPORT */
     ret = MHD_connection_handle_idle (con);
     if (force_close)
       return ret;
@@ -4268,6 +4287,7 @@ MHD_get_timeout64 (struct MHD_Daemon *daemon,
   uint64_t earliest_deadline;
   struct MHD_Connection *pos;
   struct MHD_Connection *earliest_tmot_conn; /**< the connection with earliest timeout */
+  bool resuming; /**< the copy of @a daemon->resuming, read under the lock */
 
 #ifdef MHD_USE_THREADS
   mhd_assert ( (! MHD_D_IS_USING_THREADS_ (daemon)) || \
@@ -4282,9 +4302,20 @@ MHD_get_timeout64 (struct MHD_Daemon *daemon,
 #endif
     return MHD_NO;
   }
+  /* Unlike the other flags checked below, which are touched only by the
+     thread that processes this daemon's polling, 'resuming' is set by
+     #MHD_resume_connection(), which the application may legally call from
+     any thread.  It is guarded by 'cleanup_connection_mutex' everywhere. */
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_lock_chk_ (&daemon->cleanup_connection_mutex);
+#endif
+  resuming = daemon->resuming;
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_unlock_chk_ (&daemon->cleanup_connection_mutex);
+#endif
   if (daemon->data_already_pending
       || (NULL != daemon->cleanup_head)
-      || daemon->resuming
+      || resuming
       || daemon->have_new
       || daemon->shutdown)
   {
@@ -5566,6 +5597,13 @@ MHD_epoll (struct MHD_Daemon *daemon,
     return MHD_NO; /* we're down! */
   if (daemon->shutdown)
     return MHD_NO;
+  /* 'listen_socket_in_epoll', 'was_quiesced' and the epoll set itself
+     are shared with MHD_quiesce_daemon(), which runs on the
+     application's thread.  Testing them and acting on the result has to
+     be one atomic step. */
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_lock_chk_ (&daemon->epoll_listen_mutex);
+#endif
   if ( (MHD_INVALID_SOCKET != (ls = daemon->listen_fd)) &&
        (! daemon->was_quiesced) &&
        (daemon->connections < daemon->connection_limit) &&
@@ -5579,6 +5617,9 @@ MHD_epoll (struct MHD_Daemon *daemon,
                         ls,
                         &event))
     {
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+      MHD_mutex_unlock_chk_ (&daemon->epoll_listen_mutex);
+#endif
 #ifdef HAVE_MESSAGES
       MHD_DLOG (daemon,
                 _ ("Call to epoll_ctl failed: %s\n"),
@@ -5591,15 +5632,16 @@ MHD_epoll (struct MHD_Daemon *daemon,
   if ( (daemon->was_quiesced) &&
        (daemon->listen_socket_in_epoll) )
   {
-    if ( (0 != epoll_ctl (daemon->epoll_fd,
-                          EPOLL_CTL_DEL,
-                          ls,
-                          NULL)) &&
-         (ENOENT != errno) )   /* ENOENT can happen due to race with
-                                  #MHD_quiesce_daemon() */
+    if (0 != epoll_ctl (daemon->epoll_fd,
+                        EPOLL_CTL_DEL,
+                        ls,
+                        NULL))
       MHD_PANIC ("Failed to remove listen FD from epoll set.\n");
     daemon->listen_socket_in_epoll = false;
   }
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_unlock_chk_ (&daemon->epoll_listen_mutex);
+#endif
 
 #if defined(HTTPS_SUPPORT) && defined(UPGRADE_SUPPORT)
   if ( ( (! daemon->upgrade_fd_in_epoll) &&
@@ -5622,6 +5664,9 @@ MHD_epoll (struct MHD_Daemon *daemon,
     daemon->upgrade_fd_in_epoll = true;
   }
 #endif /* HTTPS_SUPPORT && UPGRADE_SUPPORT */
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_lock_chk_ (&daemon->epoll_listen_mutex);
+#endif
   if ( (daemon->listen_socket_in_epoll) &&
        ( (daemon->connections == daemon->connection_limit) ||
          (daemon->at_limit) ||
@@ -5636,6 +5681,9 @@ MHD_epoll (struct MHD_Daemon *daemon,
       MHD_PANIC (_ ("Failed to remove listen FD from epoll set.\n"));
     daemon->listen_socket_in_epoll = false;
   }
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_unlock_chk_ (&daemon->epoll_listen_mutex);
+#endif
 
   if ( (0 != (daemon->options & MHD_TEST_ALLOW_SUSPEND_RESUME)) &&
        (MHD_NO != resume_suspended_connections (daemon)) )
@@ -6215,6 +6263,14 @@ MHD_quiesce_daemon (struct MHD_Daemon *daemon)
   if (NULL != daemon->worker_pool)
     for (i = 0; i < daemon->worker_pool_size; i++)
     {
+      /* Each worker is an independent daemon with its own epoll set and
+         its own lock; they are taken one at a time and never nested, so
+         there is no ordering to get wrong.  Holding the worker's lock
+         is what stops it removing the same descriptor concurrently from
+         its own MHD_epoll(). */
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+      MHD_mutex_lock_chk_ (&daemon->worker_pool[i].epoll_listen_mutex);
+#endif
       daemon->worker_pool[i].was_quiesced = true;
 #ifdef EPOLL_SUPPORT
       if (MHD_D_IS_USING_EPOLL_ (daemon) &&
@@ -6236,7 +6292,13 @@ MHD_quiesce_daemon (struct MHD_Daemon *daemon)
           MHD_PANIC (_ ("Failed to signal quiesce via inter-thread " \
                         "communication channel.\n"));
       }
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+      MHD_mutex_unlock_chk_ (&daemon->worker_pool[i].epoll_listen_mutex);
+#endif
     }
+#endif
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_lock_chk_ (&daemon->epoll_listen_mutex);
 #endif
   daemon->was_quiesced = true;
 #ifdef EPOLL_SUPPORT
@@ -6244,15 +6306,16 @@ MHD_quiesce_daemon (struct MHD_Daemon *daemon)
       (-1 != daemon->epoll_fd) &&
       (daemon->listen_socket_in_epoll) )
   {
-    if ( (0 != epoll_ctl (daemon->epoll_fd,
-                          EPOLL_CTL_DEL,
-                          ret,
-                          NULL)) &&
-         (ENOENT != errno) )   /* ENOENT can happen due to race with
-                                  #MHD_epoll() */
+    if (0 != epoll_ctl (daemon->epoll_fd,
+                        EPOLL_CTL_DEL,
+                        ret,
+                        NULL))
       MHD_PANIC ("Failed to remove listen FD from epoll set.\n");
     daemon->listen_socket_in_epoll = false;
   }
+#endif
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_unlock_chk_ (&daemon->epoll_listen_mutex);
 #endif
   if ( (MHD_ITC_IS_VALID_ (daemon->itc)) &&
        (! MHD_itc_activate_ (daemon->itc, "q")) )
@@ -8791,6 +8854,17 @@ MHD_start_daemon_va (unsigned int flags,
         MHD_mutex_destroy_chk_ (&daemon->cleanup_connection_mutex);
         goto free_and_fail;
       }
+      if (! MHD_mutex_init_ (&daemon->epoll_listen_mutex))
+      {
+#ifdef HAVE_MESSAGES
+        MHD_DLOG (daemon,
+                  _ ("Failed to initialise mutex.\n"));
+#endif
+        MHD_mutex_destroy_chk_ (&daemon->new_connections_mutex);
+        MHD_mutex_destroy_chk_ (&daemon->cleanup_connection_mutex);
+        MHD_mutex_destroy_chk_ (&daemon->per_ip_connection_mutex);
+        goto free_and_fail;
+      }
       if (! MHD_create_named_thread_ (&daemon->tid,
                                       MHD_D_IS_USING_THREAD_PER_CONN_ (daemon) ?
                                       "MHD-listen" : "MHD-single",
@@ -8811,6 +8885,7 @@ MHD_start_daemon_va (unsigned int flags,
                   _ ("Failed to create listen thread: %s\n"),
                   MHD_strerror_ (errno));
 #endif /* HAVE_MESSAGES */
+        MHD_mutex_destroy_chk_ (&daemon->epoll_listen_mutex);
         MHD_mutex_destroy_chk_ (&daemon->new_connections_mutex);
         MHD_mutex_destroy_chk_ (&daemon->per_ip_connection_mutex);
         MHD_mutex_destroy_chk_ (&daemon->cleanup_connection_mutex);
@@ -8866,6 +8941,17 @@ MHD_start_daemon_va (unsigned int flags,
           MHD_mutex_destroy_chk_ (&d->cleanup_connection_mutex);
           goto thread_failed;
         }
+        if (! MHD_mutex_init_ (&d->epoll_listen_mutex))
+        {
+#ifdef HAVE_MESSAGES
+          MHD_DLOG (daemon,
+                    _ ("Failed to initialise mutex.\n"));
+#endif
+          MHD_mutex_destroy_chk_ (&d->new_connections_mutex);
+          MHD_mutex_destroy_chk_ (&d->cleanup_connection_mutex);
+          MHD_mutex_destroy_chk_ (&daemon->per_ip_connection_mutex);
+          goto free_and_fail;
+        }
         if (0 != (*pflags & MHD_USE_ITC))
         {
           if (! MHD_itc_init_ (d->itc))
@@ -8876,6 +8962,7 @@ MHD_start_daemon_va (unsigned int flags,
                          "communication channel: %s\n"),
                       MHD_itc_last_strerror_ () );
 #endif
+            MHD_mutex_destroy_chk_ (&d->epoll_listen_mutex);
             MHD_mutex_destroy_chk_ (&d->new_connections_mutex);
             MHD_mutex_destroy_chk_ (&d->cleanup_connection_mutex);
             goto thread_failed;
@@ -8889,6 +8976,7 @@ MHD_start_daemon_va (unsigned int flags,
                          "communication channel exceeds maximum value.\n"));
 #endif
             MHD_itc_destroy_chk_ (d->itc);
+            MHD_mutex_destroy_chk_ (&d->epoll_listen_mutex);
             MHD_mutex_destroy_chk_ (&d->new_connections_mutex);
             MHD_mutex_destroy_chk_ (&d->cleanup_connection_mutex);
             goto thread_failed;
@@ -8916,6 +9004,7 @@ MHD_start_daemon_va (unsigned int flags,
         {
           if (MHD_ITC_IS_VALID_ (d->itc))
             MHD_itc_destroy_chk_ (d->itc);
+          MHD_mutex_destroy_chk_ (&d->epoll_listen_mutex);
           MHD_mutex_destroy_chk_ (&d->new_connections_mutex);
           MHD_mutex_destroy_chk_ (&d->cleanup_connection_mutex);
           goto thread_failed;
@@ -8959,6 +9048,7 @@ MHD_start_daemon_va (unsigned int flags,
            * all previously-created workers. */
           if (MHD_ITC_IS_VALID_ (d->itc))
             MHD_itc_destroy_chk_ (d->itc);
+          MHD_mutex_destroy_chk_ (&d->epoll_listen_mutex);
           MHD_mutex_destroy_chk_ (&d->new_connections_mutex);
           MHD_mutex_destroy_chk_ (&d->cleanup_connection_mutex);
           goto thread_failed;
@@ -8983,6 +9073,17 @@ MHD_start_daemon_va (unsigned int flags,
       MHD_DLOG (daemon,
                 _ ("Failed to initialise mutex.\n"));
 #endif
+      MHD_mutex_destroy_chk_ (&daemon->cleanup_connection_mutex);
+      MHD_mutex_destroy_chk_ (&daemon->per_ip_connection_mutex);
+      goto free_and_fail;
+    }
+    if (! MHD_mutex_init_ (&daemon->epoll_listen_mutex))
+    {
+#ifdef HAVE_MESSAGES
+      MHD_DLOG (daemon,
+                _ ("Failed to initialise mutex.\n"));
+#endif
+      MHD_mutex_destroy_chk_ (&daemon->new_connections_mutex);
       MHD_mutex_destroy_chk_ (&daemon->cleanup_connection_mutex);
       MHD_mutex_destroy_chk_ (&daemon->per_ip_connection_mutex);
       goto free_and_fail;
@@ -9415,6 +9516,7 @@ MHD_stop_daemon (struct MHD_Daemon *daemon)
 
 #if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
     MHD_mutex_destroy_chk_ (&daemon->cleanup_connection_mutex);
+    MHD_mutex_destroy_chk_ (&daemon->epoll_listen_mutex);
     MHD_mutex_destroy_chk_ (&daemon->new_connections_mutex);
 #endif
   }
