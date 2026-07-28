@@ -55,3 +55,6 @@ src/microhttpd_ws/test_websocket
 /po/configure.ac
 *.exe.manifest
 /libmicrohttpd-*.*.*.tar.*
+
+# Reproducers written by the src/fuzz harnesses (MHD_FUZZ_CRASH_DIR)
+crashes/

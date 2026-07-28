@@ -28,6 +28,10 @@
 #include "microhttpd.h"
 #include "mhd_sockets.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 static enum MHD_Result
 ahc_echo (void *cls,
           struct MHD_Connection *connection,

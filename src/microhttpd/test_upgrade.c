@@ -51,6 +51,10 @@
 
 #include "test_helpers.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 #ifdef HTTPS_SUPPORT
 #include <gnutls/gnutls.h>
 #include "../testcurl/https/tls_test_keys.h"

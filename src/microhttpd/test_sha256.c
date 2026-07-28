@@ -29,6 +29,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 #if defined(MHD_SHA256_TLSLIB) && defined(MHD_HTTPS_REQUIRE_GCRYPT)
 #define NEED_GCRYP_INIT 1
 #include <gcrypt.h>

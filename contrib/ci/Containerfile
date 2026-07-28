@@ -1,0 +1,53 @@
+FROM docker.io/library/debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Everything needed to bootstrap, configure, build and "make check"
+# GNU libmicrohttpd.  Unlike most GNU Taler / GNUnet components MHD has
+# no database, no libgnunet and no libjansson dependency; the only hard
+# external dependencies are a C compiler and the autotools.  Everything
+# else is optional and only unlocks parts of the test suite.
+RUN apt-get update -yqq && \
+    apt-get upgrade -yqq && \
+    apt-get install -yqq \
+                   git \
+                   ca-certificates \
+                   build-essential \
+                   make \
+                   autoconf \
+                   automake \
+                   libtool \
+                   pkg-config \
+                   texinfo \
+                   file \
+    && rm -rf /var/lib/apt/lists/*
+
+# Optional dependencies:
+#   libcurl*-dev   src/testcurl and src/testzzuf (RUN_LIBCURL_TESTS)
+#   libgnutls28-dev + libgcrypt20-dev  HTTPS support (--enable-https=auto)
+#   zlib1g-dev     used by some of the example/test code
+#   zzuf, socat    src/testzzuf (--enable-heavy-tests)
+#   lcov           the coverage job
+RUN apt-get update -yqq && \
+    apt-get install -yqq \
+                   curl \
+                   libcurl4-gnutls-dev \
+                   libgnutls28-dev \
+                   libgcrypt20-dev \
+                   zlib1g-dev \
+                   zzuf \
+                   socat \
+                   lcov \
+    && rm -rf /var/lib/apt/lists/*
+
+# 32-bit toolchain for the "-m32" half of the build-configuration matrix
+# (job 3-build-matrix).  Only available on x86; on other architectures the
+# matrix job logs a SKIP for the 32-bit combinations instead of failing.
+RUN apt-get update -yqq && \
+    (apt-get install -yqq gcc-multilib libc6-dev-i386 \
+     || echo "no 32-bit toolchain for this architecture, -m32 jobs will SKIP") \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workdir
+
+CMD ["/bin/bash"]

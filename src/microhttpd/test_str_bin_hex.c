@@ -26,8 +26,13 @@
 #include "mhd_options.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "mhd_str.h"
 #include "mhd_assert.h"
+
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
 
 #ifndef MHD_STATICSTR_LEN_
 /**
@@ -436,6 +441,191 @@ check_broken_str (void)
 }
 
 
+/**
+ * The maximum length of the hexadecimal input used by the exact-sized
+ * output buffer checks.
+ */
+#define TEST_EXACT_MAX_HEX_LEN 320
+
+/**
+ * The number of the guard bytes placed right after the output buffer.
+ */
+#define TEST_GUARD_SIZE 8
+
+/**
+ * The value used to fill the guard bytes.
+ */
+#define TEST_GUARD_CHR 0x5A
+
+/**
+ * Check that MHD_hex_to_bin() writes no more than the documented number of
+ * the output bytes, which is ((@a hex_len + 1) / 2).
+ *
+ * Every caller of MHD_hex_to_bin() must size the output buffer by that
+ * formula.  A caller that sizes the buffer by the expected size of the
+ * decoded value instead (like the digest authentication 'response' check
+ * used to do) can be overflown by simply sending a longer hexadecimal
+ * string, therefore this contract is checked here with buffers that have
+ * no slack at all:
+ * - an exactly-sized heap allocation, so that a run-time memory checker
+ *   (ASAN, valgrind) traps any out-of-bounds write immediately, and
+ * - an allocation with a known guard pattern right after the output area,
+ *   so that the overflow is detected even without any such tool.
+ *
+ * @param hex the input string with hexadecimal digits
+ * @param hex_len the length of @a hex
+ * @param must_succeed non-zero if the decoding is expected to succeed
+ * @param line_num the line number to report in case of failure
+ * @return zero if succeed, number of failures otherwise
+ */
+static unsigned int
+expect_exact_dest_n (const char *const hex,
+                     const size_t hex_len,
+                     const int must_succeed,
+                     const unsigned int line_num)
+{
+  const size_t max_out_size = (hex_len + 1) / 2;
+  const size_t expected_size = must_succeed ? max_out_size : 0;
+  uint8_t *buf;
+  size_t res_size;
+  size_t i;
+  unsigned int ret;
+
+  ret = 0;
+
+  /* (1) The exactly-sized output buffer. */
+  buf = (uint8_t *) malloc (0 != max_out_size ? max_out_size : 1);
+  if (NULL == buf)
+  {
+    fprintf (stderr, "malloc() failed. Line: %u\n", line_num);
+    return 1;
+  }
+  res_size = MHD_hex_to_bin (hex, hex_len, buf);
+  free (buf);
+  if (res_size != expected_size)
+  {
+    ret++;
+    fprintf (stderr,
+             "'MHD_hex_to_bin ()' FAILED: "
+             "Wrong returned value with the exactly-sized buffer:\n");
+    fprintf (stderr,
+             "\tRESULT  : MHD_hex_to_bin (\"%s\", %u, ...) -> %u\n",
+             n_prnt (hex, hex_len), (unsigned) hex_len,
+             (unsigned) res_size);
+    fprintf (stderr,
+             "\tEXPECTED: MHD_hex_to_bin (\"%s\", %u, ...) -> %u\n",
+             n_prnt (hex, hex_len), (unsigned) hex_len,
+             (unsigned) expected_size);
+  }
+
+  /* (2) The output buffer followed by the guard bytes. */
+  buf = (uint8_t *) malloc (max_out_size + TEST_GUARD_SIZE);
+  if (NULL == buf)
+  {
+    fprintf (stderr, "malloc() failed. Line: %u\n", line_num);
+    return ret + 1;
+  }
+  memset (buf, TEST_GUARD_CHR, max_out_size + TEST_GUARD_SIZE);
+  res_size = MHD_hex_to_bin (hex, hex_len, buf);
+  if (res_size > max_out_size)
+  {
+    ret++;
+    fprintf (stderr,
+             "'MHD_hex_to_bin ()' FAILED: "
+             "Returned value is larger than the documented maximum "
+             "output size: %u > %u\n",
+             (unsigned) res_size, (unsigned) max_out_size);
+  }
+  for (i = 0; i < TEST_GUARD_SIZE; ++i)
+  {
+    if (TEST_GUARD_CHR != buf[max_out_size + i])
+    {
+      ret++;
+      fprintf (stderr,
+               "'MHD_hex_to_bin ()' FAILED: "
+               "The guard byte number %u (of %u) after the output buffer "
+               "has been overwritten:\n",
+               (unsigned) i, (unsigned) TEST_GUARD_SIZE);
+      fprintf (stderr,
+               "\tINPUT   : MHD_hex_to_bin (\"%s\", %u, ...), "
+               "the maximum output size is %u\n",
+               n_prnt (hex, hex_len), (unsigned) hex_len,
+               (unsigned) max_out_size);
+      break;
+    }
+  }
+  free (buf);
+
+  if (0 != ret)
+  {
+    fprintf (stderr,
+             "The check is at line: %u\n\n", line_num);
+  }
+  return ret;
+}
+
+
+#define expect_exact_dest(h,ms) \
+        expect_exact_dest_n (h, MHD_STATICSTR_LEN_ (h), ms, __LINE__)
+
+
+/**
+ * Check the output size contract of MHD_hex_to_bin() for every input length
+ * up to #TEST_EXACT_MAX_HEX_LEN, for valid and for broken input.
+ *
+ * @return zero if succeed, number of failures otherwise
+ */
+static unsigned int
+check_exact_dest_buffer (void)
+{
+  static const char hex_digits[] = "0123456789abcdefABCDEF";
+  static char hex[TEST_EXACT_MAX_HEX_LEN + 1];
+  unsigned int r = 0; /**< The number of errors */
+  size_t len;
+
+  for (len = 0; len < sizeof(hex) - 1; ++len)
+    hex[len] = hex_digits[len % (sizeof(hex_digits) - 1)];
+  hex[sizeof(hex) - 1] = 0;
+
+  /* Valid input of every length, including the odd lengths for which
+     an extra leading zero is assumed and therefore one more byte is
+     written than (hex_len / 2). */
+  for (len = 0; len <= TEST_EXACT_MAX_HEX_LEN; ++len)
+    r += expect_exact_dest_n (hex, len, 1, __LINE__);
+
+  /* Broken input: a non-hexadecimal character at every possible position.
+     The decoding fails, but the bytes decoded before the broken character
+     have already been written and must still fit into the output buffer. */
+  for (len = 1; len <= 64; ++len)
+  {
+    size_t pos;
+
+    for (pos = 0; pos < len; ++pos)
+    {
+      const char saved = hex[pos];
+
+      hex[pos] = 'z';
+      r += expect_exact_dest_n (hex, len, 0, __LINE__);
+      hex[pos] = saved;
+    }
+  }
+
+  /* The lengths that matter for the HTTP Digest authentication code:
+     twice the digest size is the largest input any caller may accept. */
+  r += expect_exact_dest ("00112233445566778899aabbccddeeff", 1); /* MD5 */
+  r += expect_exact_dest ("00112233445566778899aabbccddeeff"
+                          "00112233445566778899aabbccddeeff", 1); /* SHA-256 */
+  /* Twice as long as the largest supported digest: a caller that sizes the
+     output buffer by the digest size only would be overflown here. */
+  r += expect_exact_dest ("00112233445566778899aabbccddeeff"
+                          "00112233445566778899aabbccddeeff"
+                          "00112233445566778899aabbccddeeff"
+                          "00112233445566778899aabbccddeeff", 1);
+
+  return r;
+}
+
+
 int
 main (int argc, char *argv[])
 {
@@ -443,6 +633,7 @@ main (int argc, char *argv[])
   (void) argc; (void) argv; /* Unused. Silent compiler warning. */
   errcount += check_decode_bin ();
   errcount += check_broken_str ();
+  errcount += check_exact_dest_buffer ();
   if (0 == errcount)
     printf ("All tests have been passed without errors.\n");
   return errcount == 0 ? 0 : 1;

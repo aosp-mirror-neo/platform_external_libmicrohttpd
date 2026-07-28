@@ -45,6 +45,10 @@
 #include <errno.h>
 #include "mhd_has_in_name.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 #if defined(MHD_CPU_COUNT) && (MHD_CPU_COUNT + 0) < 2
 #undef MHD_CPU_COUNT
 #endif

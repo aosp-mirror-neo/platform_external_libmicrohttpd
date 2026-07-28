@@ -43,6 +43,10 @@
 #include "mhd_has_param.h"
 #include "mhd_has_in_name.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 /* The next macros are borrowed from memorypool.c
    Keep them in sync! */
 

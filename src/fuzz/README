@@ -1,0 +1,560 @@
+GNU libmicrohttpd -- in-process fuzzing harnesses
+=================================================
+
+This directory contains four in-process fuzzing harnesses for MHD.  All
+of them are *dual mode*:
+
+  * they export the libFuzzer entry point
+
+        int LLVMFuzzerTestOneInput (const uint8_t *data, size_t size);
+
+    so the very same source can be linked with clang/libFuzzer, AFL++ or
+    OSS-Fuzz, and
+
+  * they ship a **built-in standalone driver** (`fuzz_common.h`) with a
+    deterministic, seeded generator + mutator loop, so they are useful
+    with nothing but gcc and `-fsanitize=address,undefined`.
+
+The standalone driver is compiled unless `FUZZ_NO_MAIN` is defined.
+
+
+-------------------------------------------------------------------
+1. The harnesses
+-------------------------------------------------------------------
+
+fuzz_request.c          the flagship.  Feeds arbitrary bytes into a real
+                        `struct MHD_Daemon` through a `socketpair()`,
+                        using MHD_USE_NO_LISTEN_SOCKET +
+                        MHD_add_connection() and external polling
+                        (MHD_run()).  Everything runs in one thread, so
+                        the harness is deterministic and fast (~20k
+                        requests/s under ASAN+UBSAN).
+
+fuzz_str.c              direct fuzzing of the string primitives in
+                        src/microhttpd/mhd_str.c.  Every output buffer is
+                        malloc()ed at *exactly* the documented size so
+                        that ASAN's redzone catches a one-byte overrun.
+
+fuzz_auth_header.c      direct fuzzing of the "Authorization:" header
+                        parsers, MHD_get_rq_dauth_params_() and
+                        MHD_get_rq_bauth_params_() (gen_auth.c), through
+                        a minimal fabricated `struct MHD_Connection`.
+                        ~250k execs/s.
+
+fuzz_postprocessor.c    fuzzing of MHD_post_process() with random
+                        Content-Type (urlencoded / multipart with random
+                        boundaries), random post-processor buffer sizes
+                        and random chunking of the POST data.
+
+Shared code lives in `fuzz_common.h` (header-only, so every harness
+stays a single translation unit).
+
+
+-------------------------------------------------------------------
+2. Design of fuzz_request
+-------------------------------------------------------------------
+
+2.1 Why a socketpair
+--------------------
+
+MHD_add_connection() accepts any already-connected socket, so a
+`socketpair(AF_UNIX, SOCK_STREAM)` is enough: no listen socket, no port,
+no TCP stack, no second thread.  The daemon is started with
+MHD_USE_NO_LISTEN_SOCKET and *without* MHD_USE_INTERNAL_POLLING_THREAD,
+and the harness pumps it with MHD_run() between sends.  A fake
+127.0.0.1 `struct sockaddr_in` is passed so that per-IP accounting and
+MHD_get_connection_info() see something sane.
+
+2.2 Input format
+----------------
+
+    byte 0   connection memory limit selector
+             (index into {default,128,192,256,320,384,512,768,1024,
+                          1400,1500,2048,4096,32768})
+    byte 1   handler behaviour bitmask
+               0x01  call MHD_digest_auth_check3() /
+                     MHD_queue_auth_required_response3()
+               0x02  call MHD_basic_auth_get_username_password3()
+               0x04  run the request body through MHD_post_process()
+               0x08  iterate MHD_get_connection_values() over headers,
+                     GET arguments, cookies and footers
+               0x20  reply with a larger, copied response body
+               0x40  reply 403 instead of 200
+    byte 2   low nibble: MHD_OPTION_CLIENT_DISCIPLINE_LVL selector
+             (index into {-3,-2,-1,0,1,2});
+             high nibble: reserved for MHD_OPTION_SERVER_INSANITY
+             (MHD 1.0.7 only defines MHD_DSC_SANE, so the value is 0)
+    byte 3   digest configuration: bits 0-1 select the algorithm of the
+             401 challenge {SHA-256, MD5, SHA-512-256, SHA-256},
+             bit 2 selects the QOP, bits 4-5 select MHD_OPTION_NONCE_NC_SIZE
+    byte 4.. a sequence of *send segments*.  Each segment starts with a
+             little-endian 16 bit header:
+
+                 (op << 14) | length          length <= 0x3FFF
+
+             op 0   send `length` bytes on the current connection
+             op 1   the payload is the *expected decoded request body*
+                    (ground truth for the body oracle, see 2.4); it is
+                    not sent
+             op 2   send, then pump the daemon for extra rounds
+             op 3   close the current connection, open a fresh one on
+                    the same daemon, then send
+
+An explicit length encoding (rather than a magic delimiter) is used so
+that the fuzzer can move a split point without having to invent an
+escaping scheme.  Splitting matters: MHD's parser is incremental and
+several bugs only appear for particular split points.
+
+2.3 The %%NONCE%% placeholder
+-----------------------------
+
+Interesting parts of digestauth.c are only reached *after* the client
+presents a nonce that MHD itself generated.  A stateless fuzzer can
+never guess one.  Therefore the harness rewrites the literal ASCII token
+
+    %%NONCE%%
+
+inside a segment, at send time, into the most recent `nonce="..."` value
+seen in a response from the daemon.  A generated (or hand-written) input
+can thus be:
+
+    request 1:  GET /a  ->  handler calls MHD_digest_auth_check3(),
+                            gets MHD_DAUTH_WRONG_HEADER and replies
+                            401 + WWW-Authenticate: Digest ... nonce="X"
+    op 3:       new connection
+    request 2:  GET /a with Authorization: Digest ... nonce="%%NONCE%%"
+
+which walks all the way into the 'response' comparison.  Without this
+the over-long `response=` stack overflow (see 5.4) is unreachable.
+
+2.4 Oracles
+-----------
+
+Memory errors are caught by ASAN/UBSAN and aborts by the signal
+handlers.  In addition fuzz_request installs two behavioural oracles:
+
+  a) MHD_set_panic_func() -- any MHD_PANIC() reached from network input
+     is a finding (a remote abort), not a legitimate "API violation".
+
+  b) A request-body oracle.  Framing bugs (chunked transfer coding,
+     Content-Length) do not corrupt memory, they corrupt *data*, which
+     is exactly what HTTP request smuggling exploits.  The input can
+     therefore declare the expected decoded body in an `op 1` segment.
+     Every byte that MHD hands to the application must be the next
+     expected byte, and when MHD completes the request the delivered
+     body must be complete.  MHD is free to reject the request at any
+     point -- only what it *does* deliver is checked.
+
+     The declaration is honoured only for un-mutated inputs (the driver
+     exposes this as `fuzz_pristine`), because a random mutation would
+     of course invalidate the ground truth.
+
+2.5 The generator
+-----------------
+
+Purely random bytes essentially never form a valid HTTP request, so the
+standalone driver uses a small HTTP grammar (`fuzz_generate()`), and
+then optionally applies byte-level mutations on top.  Shapes:
+
+    0 SHAPE_PLAIN            random method/target/version + headers
+    1 SHAPE_NOHDR_QARG       *no header lines at all* plus a trailing
+                             query argument without '=' (this is the
+                             exact shape needed for the read-buffer
+                             shift-back bug; the generator also forces a
+                             small connection memory pool for it)
+    2 SHAPE_CL_BODY          Content-Length body + body oracle
+    3 SHAPE_CHUNKED          chunked body with chunk extensions
+                             (";ext", ";ext=val", ";ext=\"quoted\"",
+                             ";a=1;b=2;c") + trailers + body oracle
+    4 SHAPE_DIGEST_SIMPLE    Authorization: Digest with a randomised
+                             parameter set, including unknown
+                             `algorithm=` tokens and `response=` values
+                             of every length up to 128 hex digits
+    5 SHAPE_DIGEST_REPLAY    the two-request nonce handshake of 2.3
+    6 SHAPE_BASIC            Authorization: Basic with random base64
+    7 SHAPE_POST_FORM        urlencoded / multipart POST bodies
+    8 SHAPE_WEIRD            folded headers, bare CR, bare LF,
+                             whitespace before the colon, percent
+                             encoding, absolute-form targets, ...
+
+`MHD_FUZZ_SHAPE=<n>` restricts the generator to a single shape, which is
+very handy for triage and for regression-testing a specific past bug.
+
+
+-------------------------------------------------------------------
+3. Running the harnesses
+-------------------------------------------------------------------
+
+Build (gcc only, no clang required):
+
+    SRC=/path/to/libmicrohttpd            # configured build tree
+    gcc -g -O1 -Wall -Wextra \
+        -fsanitize=address,undefined -fno-sanitize-recover=all \
+        -I$SRC -I$SRC/src/include -I$SRC/src/microhttpd -I$SRC/src/fuzz \
+        -o fuzz_request $SRC/src/fuzz/fuzz_request.c \
+        $SRC/src/microhttpd/.libs/libmicrohttpd.a -lpthread
+
+(the same command line for fuzz_str, fuzz_auth_header and
+fuzz_postprocessor; the static archive is required because fuzz_str and
+fuzz_auth_header use functions that are hidden in the shared object).
+
+Options of the built-in driver (identical for all harnesses):
+
+    --iterations=N     number of generate/mutate iterations   [3000]
+    --seed=N           PRNG seed; (harness, seed) fully determines a run
+    --corpus-dir=DIR   replay every regular file in DIR and exit
+    --file=PATH        replay a single input and exit  (crash repro)
+    --crash-dir=DIR    where reproducers are written           [crashes]
+    --timeout=SEC      per-iteration watchdog, 0 disables      [20]
+    --write-corpus=DIR dump the built-in seed corpus to DIR
+    --skip-seeds       do not replay the built-in corpus first
+    --verbose          enable MHD's error log + print statistics
+    --help
+
+Environment variables (all optional):
+
+    MHD_FUZZ_ITERATIONS, MHD_FUZZ_SEED, MHD_FUZZ_TIMEOUT,
+    MHD_FUZZ_CRASH_DIR, MHD_FUZZ_VERBOSE, MHD_FUZZ_SKIP_SEEDS
+
+    MHD_FUZZ_SHAPE=<n>              (fuzz_request) restrict the generator
+                                    to one grammar shape
+    MHD_FUZZ_MIN_DISCIPLINE=<n>     (fuzz_request) lower bound for
+                                    MHD_OPTION_CLIENT_DISCIPLINE_LVL,
+                                    default -3 (the full range)
+    MHD_FUZZ_MIN_MEM_LIMIT=<n>      (fuzz_request) lower bound for
+                                    MHD_OPTION_CONNECTION_MEMORY_LIMIT,
+                                    default 0 (the full range)
+    MHD_FUZZ_MODEL_DIGEST_SINK=1    (fuzz_str) enable the modelled
+                                    digest 'response' call site, see 5.4
+
+Typical use:
+
+    # quick smoke test (a couple of seconds)
+    ./fuzz_request
+
+    # a real session
+    ./fuzz_request --iterations=5000000 --seed=$RANDOM
+
+    # regression: replay the whole checked-in corpus
+    ./fuzz_request --corpus-dir=corpus
+    ./fuzz_str --corpus-dir=corpus       # ignores foreign files gracefully
+
+    # reproduce a crash
+    ./fuzz_request --file=crashes/crash-fuzz_request-seed3-iter55.bin
+
+
+-------------------------------------------------------------------
+4. Reproducing a failure
+-------------------------------------------------------------------
+
+Whenever the process dies -- ASAN error, UBSAN error, `mhd_assert()`,
+MHD_PANIC(), a body-oracle finding, or the watchdog -- the input of the
+running iteration is written to
+
+    $MHD_FUZZ_CRASH_DIR/crash-<harness>-seed<S>-iter<N>.bin
+
+and a line is printed telling you the harness, the seed and the
+iteration.  The dump is produced from
+
+  * `__sanitizer_set_death_callback()` (weakly linked; present whenever
+    the binary is built with ASAN), and
+  * SIGABRT/SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGALRM handlers,
+
+using only async-signal-safe calls.  Replay with `--file=...`; the run
+is fully deterministic, so `--seed=S --iterations=N+1` reproduces the
+whole session as well.
+
+
+-------------------------------------------------------------------
+5. What these harnesses find (regression coverage)
+-------------------------------------------------------------------
+
+The four vulnerabilities fixed in MHD 1.0.7+1 are all rediscovered from
+scratch.  Each has a dedicated seed in `corpus/`, and the generator
+finds each of them on its own within a few thousand iterations.
+
+5.1 digestauth.c: unknown `algorithm=` token -> MHD_PANIC()
+    An `algorithm=` token MHD does not know parses to
+    MHD_DIGEST_AUTH_ALGO3_INVALID, which is 0, so the allow-mask test
+    `c_algo == (c_algo & malgo3)` passes for *any* mask; the code then
+    calls digest_init_one_time() with an invalid algorithm and panics.
+    Found by: SHAPE_DIGEST_SIMPLE / SHAPE_DIGEST_REPLAY, the panic hook,
+    corpus seed `digest-unknown-algorithm`.
+
+5.2 connection.c get_req_headers(): read-buffer shift-back underflow
+    Needs, all at once: a small MHD_OPTION_CONNECTION_MEMORY_LIMIT
+    (MHD_BUF_INC_SIZE (1500) > read_buffer_size), *no header lines*, and
+    a trailing query argument without '=' (whose `value` is NULL).
+    Found by: SHAPE_NOHDR_QARG, corpus seeds
+    `small-pool-trailing-query-arg[-2]`.
+
+5.3 connection.c process_request_body(): chunk-extension CRLF
+    `chunk_size_line_len = i` instead of `i + 2` leaves the CRLF of the
+    chunk-size line in the stream, so the following chunk data is
+    shifted -- a body desync, i.e. a request-smuggling primitive.  This
+    corrupts no memory, so it is caught by the body oracle (2.4).
+    Found by: SHAPE_CHUNKED, corpus seeds `chunked-with-extensions`,
+    `chunked-split`.
+
+5.4 digestauth.c: over-long `response=` -> stack buffer overflow
+    `response` was accepted up to `digest_size * 4` characters (128 for
+    SHA-256) and then decoded with MHD_hex_to_bin() into
+    `uint8_t hash1_bin[MAX_DIGEST]` (32 bytes) -- up to 64 bytes
+    written, 32 bytes of stack smashed.  Reaching it requires a *valid*
+    nonce, hence the %%NONCE%% mechanism of 2.3.
+    Found by: SHAPE_DIGEST_REPLAY, corpus seed
+    `digest-overlong-response`.
+
+    fuzz_str additionally reproduces the underlying primitive:
+    MHD_hex_to_bin() has no output-size parameter and writes len/2
+    bytes, so any caller with a fixed-size buffer must bound the input
+    length itself.  `MHD_FUZZ_MODEL_DIGEST_SINK=1` enables a target that
+    replays exactly the pre-fix call site (32 byte heap buffer, input
+    length bounded only by 4 * 32) and ASAN reports the overflow
+    immediately.  The target models a *caller*, not the library, so it
+    is off by default.
+
+
+-------------------------------------------------------------------
+6. Findings against MHD 1.0.7 - all fixed, kept as regressions
+-------------------------------------------------------------------
+
+Running these harnesses against v1.0.7 built with `--enable-asserts`
+reported the following *additional* issues on top of the four
+vulnerabilities of section 5.  All of them were `mhd_assert()`s reachable
+from network input, i.e. a remote abort in builds that keep assertions
+enabled, and all of them are fixed on master.  They are documented here
+because the reproducers are kept as a regression corpus: a failure of one
+of them means the corresponding fix has been undone.  Byte-exact reproducers are in `corpus/known-findings/`; replay
+one with
+
+    ./fuzz_request --file=corpus/known-findings/K1-digest-empty-realm.bin
+
+K1  digestauth.c:2467  is_param_equal():
+        mhd_assert (0 != param->value.len)                 -> fixed in 300a2ab0
+    Trigger (default daemon configuration!), one request:
+        GET /a HTTP/1.1
+        Host: x
+        Authorization: Digest username="user", realm="", nonce="0000",
+                       uri="/a", response="00"
+    digest_auth_check_all_inner() rejects a *missing* realm/username but
+    not an *empty* one, so a zero-length parameter reaches
+    is_param_equal(), whose documented precondition is a non-empty
+    value.  Requires only that the application calls
+    MHD_digest_auth_check3().  Real defect (missing validation).
+    Repro: corpus/known-findings/K1-digest-empty-realm.bin
+
+K2  connection.c:3582  handle_recv_no_space():
+        mhd_assert ((MHD_PROC_RECV_BODY_CHUNKED != stage) ||
+                    ! c->rq.some_payload_processed)        -> fixed in 68c83f22
+    Trigger: small MHD_OPTION_CONNECTION_MEMORY_LIMIT (<= ~400 bytes)
+    plus a chunked body whose *second* chunk-size line carries a chunk
+    extension that does not fit into the remaining read buffer.  The
+    flag reflects the last application callback only and survives later
+    reads, so the assertion is over-strong; the code below it already
+    handles the situation.  Stale assertion.
+    Repro: corpus/known-findings/K2-chunkext-no-space.bin
+
+K3  connection.c:2881  transmit_error_response_len():
+        mhd_assert (! connection->stop_with_error)         -> fixed in e04eb218
+    Trigger: small connection memory pool plus an over-long, unterminated
+    chunk extension:
+        POST /a HTTP/1.1 / Transfer-Encoding: chunked
+        d;ext="qqqqqqqq...        (longer than the read buffer)
+    handle_req_chunk_size_line_no_space() is missing a `return` after it
+    has already queued the "chunk extension too big" response.  Real
+    defect: in a release build the second call forces the connection to
+    MHD_CONNECTION_CLOSED and the 413 response is never sent.
+    Repro: corpus/known-findings/K3-chunkext-stop-with-error.bin
+
+K4  connection.c:6099  get_req_header():
+        mhd_assert ((0 == c->rq.hdrs.hdr.value_start) ||
+                    (0 != c->rq.hdrs.hdr.name_len))        -> fixed in 0b750975
+    Trigger a) MHD_OPTION_CLIENT_DISCIPLINE_LVL <= -1, first header line
+    starting with whitespace:
+        GET /a HTTP/1.1\r\n Host: x\r\n\r\n
+    Trigger b) MHD_OPTION_CLIENT_DISCIPLINE_LVL <= -2, empty header
+    name:
+        GET /a HTTP/1.1\r\n: value\r\nHost: x\r\n\r\n
+    Both shapes are explicitly allowed by those discipline levels.
+    Stale assertion.
+    Repro: corpus/known-findings/K4a-wsp-first-header.bin,
+           corpus/known-findings/K4b-empty-header-name.bin
+
+K5  connection.c:6394  get_req_header():
+        mhd_assert ('\r' != chr)                           -> fixed in 6fcdfd43
+    Trigger: MHD_OPTION_CLIENT_DISCIPLINE_LVL = -3, which sets
+    `bare_cr_keep = true`; the branch that keeps a bare CR falls through
+    into the "not a whitespace, not the end of the line" arm whose
+    assertion predates that mode.
+        GET /a HTTP/1.1\r\nHost: x\r\nX: y\r\r\n\r\n
+    Stale assertion.
+    Repro: corpus/known-findings/K5-bare-cr-keep.bin
+
+K6  digestauth.c:860  check_nonce_nc():
+        mhd_assert (0 == nn->nonce[noncelen])
+    The nonce-nc slot array is indexed by a hash of the nonce, but the
+    slot content is compared assuming the *stored* nonce has the same
+    length as the presented one.  A client can therefore make MHD read
+    the terminator of a nonce at the wrong offset by presenting a nonce
+    whose length belongs to a different digest algorithm.
+    Note that this one is *timing dependent*: the nonce carries a
+    millisecond timestamp and whether it counts as stale depends on the
+    wall clock, so the same input reproduces only in a fraction of the
+    replays (about 1 in 30 for the corpus file below).  Replay it in a
+    loop.
+    Trigger (MHD_OPTION_NONCE_NC_SIZE = 1 makes every nonce land in slot
+    0, which turns the collision into a certainty; larger arrays only
+    need more attempts):
+        request 1: GET /a          -> 401 with a SHA-256 nonce
+                                      (76 chars) stored in the slot
+        request 2: Authorization: Digest username="user",
+                   realm="TestRealm", nonce="<44 zeros>", uri="/a",
+                   response="e"
+                   (no algorithm parameter -> MD5 -> nonce length 44,
+                    all-zero timestamp -> not stale)
+    The generator needs ~150k iterations to hit it on its own.
+    Repro: corpus/known-findings/K6-nonce-length-collision.bin
+
+Status
+------
+
+K1-K5 are fixed on master by commits 300a2ab0, 68c83f22, e04eb218,
+0b750975 and 6fcdfd43 respectively; K6 by f438804c.  All seven
+reproducers in `corpus/known-findings/` therefore replay clean, and
+`make check-corpus` asserts exactly that.
+
+The `make check` defaults in Makefile.am
+
+    MHD_FUZZ_ITERATIONS     = 50000
+    MHD_FUZZ_MIN_DISCIPLINE = -3      (full range)
+    MHD_FUZZ_MIN_MEM_LIMIT  = 0       (full range)
+
+exercise the whole matrix and take about three seconds in total under
+ASAN+UBSAN.  A real session:
+
+    MHD_FUZZ_MIN_DISCIPLINE=-3 MHD_FUZZ_MIN_MEM_LIMIT=0 \
+      ./fuzz_request --iterations=1000000 --seed=1
+
+-------------------------------------------------------------------
+7. Building with clang/libFuzzer or AFL++
+-------------------------------------------------------------------
+
+Both need `-DFUZZ_NO_MAIN` so that the driver's `main()` is left out.
+
+7.1 libFuzzer
+-------------
+
+    # build the library itself with the same instrumentation
+    ./configure --enable-static --disable-shared --enable-asserts \
+                CC=clang \
+                CFLAGS="-g -O1 -fsanitize=fuzzer-no-link,address,undefined \
+                        -fno-sanitize-recover=all -fprofile-instr-generate \
+                        -fcoverage-mapping"
+    make -C src/microhttpd
+
+    clang -g -O1 -DFUZZ_NO_MAIN \
+        -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all \
+        -I. -Isrc/include -Isrc/microhttpd -Isrc/fuzz \
+        -o fuzz_request src/fuzz/fuzz_request.c \
+        src/microhttpd/.libs/libmicrohttpd.a -lpthread
+
+    mkdir -p CORPUS && ./fuzz_request --help >/dev/null 2>&1 || true
+    ./fuzz_request CORPUS src/fuzz/corpus \
+        -max_len=8192 -rss_limit_mb=4096 -timeout=20
+
+    # minimise a crash found by libFuzzer
+    ./fuzz_request -minimize_crash=1 -runs=100000 crash-<hash>
+
+7.2 AFL++
+---------
+
+    export CC=afl-clang-lto AFL_USE_ASAN=1 AFL_USE_UBSAN=1
+    ./configure --enable-static --disable-shared --enable-asserts
+    make -C src/microhttpd
+
+    afl-clang-lto -g -O1 -DFUZZ_NO_MAIN \
+        -I. -Isrc/include -Isrc/microhttpd -Isrc/fuzz \
+        -o fuzz_request src/fuzz/fuzz_request.c \
+        $(afl-config --libdir 2>/dev/null || echo /usr/local/lib/afl)/afl-compiler-rt.o \
+        /usr/local/lib/afl/libAFLDriver.a \
+        src/microhttpd/.libs/libmicrohttpd.a -lpthread
+
+    afl-fuzz -i src/fuzz/corpus -o findings -- ./fuzz_request @@
+
+(`libAFLDriver.a` provides a `main()` that reads the file named on the
+command line and calls LLVMFuzzerTestOneInput(); that is why
+`-DFUZZ_NO_MAIN` is required.  With `AFL_LLVM_PERSISTENT` /
+`__AFL_LOOP` the same binary can be used in persistent mode.)
+
+7.3 OSS-Fuzz
+------------
+
+Ready to go: see `../../contrib/oss-fuzz/` and its README.  That
+directory holds the OSS-Fuzz `build.sh`, `project.yaml` and `Dockerfile`,
+per-harness dictionaries (`dicts/fuzz_*.dict`), per-harness `.options`
+files (`max_len`, `dict`) and `make_seed_corpus.sh`, which packages
+`corpus/` — including `corpus/known-findings/`, so that K1-K6 become
+permanent regressions — into the `<fuzzer>_seed_corpus.zip` files
+OSS-Fuzz expects.
+
+`build.sh` configures out of tree with
+
+    --enable-static --disable-shared --with-pic --enable-fuzzing
+    --enable-asserts --disable-https --disable-curl --disable-doc
+    --disable-examples --disable-tools --enable-build-type=neutral
+
+honouring OSS-Fuzz's `$CFLAGS` (no `--enable-sanitizers`: OSS-Fuzz
+supplies the instrumentation), and then compiles each harness exactly as
+in 7.1 but against `$LIB_FUZZING_ENGINE`.  HTTPS is off on purpose — the
+harnesses never speak TLS, and leaving GnuTLS out is what makes the
+MemorySanitizer build possible.
+
+Two things to know before reading a report from there:
+
+  * the request-body oracle of 2.4 is **inactive** under libFuzzer.  It
+    is gated on `fuzz_pristine`, which nothing sets when `FUZZ_NO_MAIN`
+    is defined — correctly so, since libFuzzer's mutations invalidate the
+    declared ground truth.  Pure framing/desync defects (5.3) therefore
+    remain the job of the built-in driver, i.e. of `make check`;
+  * `primary_contact` in `project.yaml` is a placeholder.  OSS-Fuzz needs
+    an address the maintainer controls; it has to be filled in before the
+    project can be submitted.
+
+The token list in `fuzz_common.h` (`fuzz_interesting_str`) is the
+generator's equivalent of those dictionaries; the two are intentionally
+similar but are not generated from each other.
+
+OSS-Fuzz is deliberately not part of `contrib/ci/jobs/`; the bounded
+in-tree equivalents for CI are `make -C src/fuzz check` and
+`make -C src/fuzz check-corpus`.
+
+
+-------------------------------------------------------------------
+8. Adding a harness
+-------------------------------------------------------------------
+
+Create `fuzz_<name>.c` with
+
+    #define FUZZ_HARNESS_NAME "fuzz_<name>"
+    #include "fuzz_common.h"
+
+and implement
+
+    int    LLVMFuzzerTestOneInput (const uint8_t *, size_t);
+    static size_t fuzz_generate (struct fuzz_rng *, uint8_t *, size_t);
+    static size_t fuzz_seed_count (void);
+    static const uint8_t *fuzz_seed_get (size_t, size_t *);
+
+then add it to `check_PROGRAMS` in Makefile.am.  Report non-crashing
+findings with `fuzz_report_finding("...")`, which dumps the reproducer
+and aborts.
+
+Two rules learnt the hard way:
+
+  * do not violate documented *preconditions* of the function under
+    test (e.g. MHD_str_remove_token_caseless_() asserts that the token
+    contains no space, tab, comma or NUL) -- otherwise the harness only
+    finds its own bugs;
+
+  * never evaluate a macro argument twice when it contains a PRNG call.

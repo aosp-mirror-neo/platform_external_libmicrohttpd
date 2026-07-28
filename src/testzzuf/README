@@ -1,13 +1,309 @@
-Testcases in this directory require zzuf and socat.
+GNU libmicrohttpd -- fuzzing testsuite (src/testzzuf)
+=====================================================
 
-zzuf is used to randomly mess with the TCP connection between the CURL
-clients and the MHD server.  The goal is to expose problems in MHD's
-error handling (by introducing random syntax errors).  socat is
-used to listen on port 11081 and forward the randomzied stream to
-port 11080 where MHD is waiting.
+The testcases in this directory require zzuf, and most of them also
+require socat.
 
-As a result, the testcases in this directory do NOT check that
-whatever CURL returns is what was expected -- random modifications to
-the TCP stream can have random effects ;-).  Testcases "fail" if the
-code crashes or hangs indefinitely.
+zzuf randomly mangles the TCP byte stream that reaches MHD.  The goal is
+to expose problems in MHD's error handling by introducing random syntax
+errors into otherwise valid HTTP traffic.
+
+There are two modes of operation:
+
+  * direct mode (zzuf_test_runner.sh)
+      zzuf runs the test binary itself and intercepts the data that MHD
+      reads from its accepted sockets.  Only possible when MHD uses
+      accept() (not accept4()) and when no sanitizer is active, because
+      zzuf and the sanitizers both intercept the standard library.
+
+  * socat mode (zzuf_socat_test_runner.sh)
+      zzuf runs a socat relay that listens on 127.0.0.121:10121 and
+      forwards the mangled stream to MHD on 127.0.0.1:4010.  The test
+      binary (and therefore MHD) runs outside of zzuf, so this mode works
+      with sanitizers and with accept4().  configure selects this mode
+      automatically when it is required (FORCE_USE_ZZUF_SOCAT).
+
+Because the byte stream is corrupted at random, the testcases do NOT
+check that whatever the client receives is what was expected.  A testcase
+"fails" when MHD crashes, aborts, hangs, reports an internal
+inconsistency through its callbacks, or when a sanitizer fires.
+
+
+What is being tested
+--------------------
+
+Every test starts a series of MHD daemons -- one per polling mode that
+the current build supports (internal select(), internal select() with
+thread-per-connection, internal poll(), internal poll() with
+thread-per-connection, internal epoll, external polling, external polling
+without thread safety) -- and runs a client against each of them.
+
+Clients come in two flavours:
+
+  * libcurl clients, for everything libcurl can express;
+  * a small raw socket client (mhd_zzuf_common.c), for everything libcurl
+    cannot express: chunk extensions, request pipelining, header-less
+    requests and hand-written "Authorization:" headers.
+
+Both flavours use 127.0.0.101 as their source address, while MHD listens
+on 127.0.0.1 (and socat on 127.0.0.121).  zzuf is told to fuzz only the
+traffic of the server side address, so the data the *clients* read is
+left alone.
+
+
+The daemon option matrix
+------------------------
+
+Historically all fuzzing tests here used essentially one set of daemon
+options.  Several MHD code paths are only reachable with other options,
+most importantly the read-buffer "shift back" in get_req_headers(), which
+is only executed when the connection memory pool is smaller than
+MHD_BUF_INC_SIZE (1500 bytes).
+
+mhd_zzuf_common.c therefore defines a matrix of option profiles:
+
+  name              mem_limit  conn_limit  timeout  discipline
+  ----------------  ---------  ----------  -------  ------------------
+  plain                     -           -        2  0
+  pool-128                128           -        2  0
+  pool-256-strict         256           -        2  1
+  pool-512-lax            512           -        2  -1
+  pool-1024-conn         1024           4        2  2
+  pool-1400-hard         1400           2        1  3
+  pool-768-loose          768           -        1  -3
+  legacy-strict           192           -        2  1  (STRICT_FOR_CLIENT)
+  legacy-lax              320           -        2  -1 (STRICT_FOR_CLIENT)
+
+"discipline" is MHD_OPTION_CLIENT_DISCIPLINE_LVL, except for the two
+"legacy" profiles which use the older MHD_OPTION_STRICT_FOR_CLIENT so
+that the option translation code is covered as well.
+
+Every daemon that a test starts uses the next profile of the matrix, so a
+single run of one test program sweeps the whole matrix.
+
+MHD_OPTION_SERVER_INSANITY is deliberately *not* used: in this version of
+MHD the only value of "enum MHD_DisableSanityCheck" is MHD_DSC_SANE (0),
+so the option cannot actually disable any check.
+
+
+The test programs
+-----------------
+
+All programs decide what to do from their own name (argv[0]).  A "10"
+in the name selects HTTP/1.0, a "_close" suffix makes MHD close the
+connection after every reply, and a "_hostile" marker enables the option
+matrix described above.
+
+  test_get, test_get_chunked, test_post, test_post_form, test_put,
+  test_put_chunked, test_put_large, test_get_long_uri,
+  test_get_long_header  (+ "_close" and "10" variants)
+      The original tests: well-formed libcurl traffic, single set of
+      daemon options.
+
+  test_get_hostile, test_get_chunked_hostile, test_post_hostile,
+  test_put_chunked_hostile, test_put_large_hostile
+      The very same client/server exchanges, but sweeping the daemon
+      option matrix.
+
+  test_get_args (+ "_close", "10")
+      GET requests with hostile query strings: arguments without '=',
+      empty names, empty values, trailing '&', percent-encoded and
+      invalid percent-encoded names, duplicated names and a very long
+      tail argument.  All daemons of this test use a connection memory
+      pool smaller than MHD_BUF_INC_SIZE.
+      In addition to the libcurl requests, the raw client sends
+      *header-less* HTTP/1.0 requests: libcurl always sends at least a
+      "Host:" header, so with libcurl alone the last parsed element of a
+      request header is always a header and never a query argument.
+
+  test_get_chunked_ext, test_put_chunked_ext (+ "_close")
+      Chunked request bodies whose chunk-size lines carry chunk
+      extensions: "name=value", flags without a value, quoted-string
+      values containing ';', several extensions on one line, extensions
+      on the terminating "0" chunk, extensions after bad whitespace, an
+      extension line longer than the whole memory pool, and trailers
+      (footers) after the last chunk.  The body is always split across
+      two send() calls so that MHD sees partial chunk-size lines.
+      Every third iteration appends a pipelined follow-up request, so a
+      chunk-extension line that is not consumed correctly shows up as a
+      request boundary de-synchronisation.
+      test_get_chunked_ext additionally makes MHD answer with a chunked
+      reply that carries a footer.
+      These tests also run a small deterministic *self-check*, see below.
+
+  test_pipelined (+ "_close")
+      Two to five complete requests written with a single send() call,
+      mixing GET/HEAD/POST/PUT, bodies with Content-Length, chunked
+      bodies, and a leading empty line.  Every other iteration the batch
+      is split in the middle of a request.
+
+  test_digest_auth (+ "_close")   [only if ENABLE_DAUTH]
+      libcurl performs a complete Digest handshake, so zzuf's bit flips
+      land inside real "WWW-Authenticate:" and "Authorization:" headers.
+      The raw client additionally sends hand-crafted "Authorization:
+      Digest" headers with an unknown "algorithm" token, an empty
+      "algorithm", a "-sess" algorithm, an over-long "response" (quoted
+      and unquoted), an over-long hex userhash, an over-long username,
+      a missing "response", garbage in "nc", an unterminated quoted
+      string and a bare "Digest" scheme without parameters.
+      The variants that have to survive MHD's nonce check are built from
+      a nonce that the raw client first obtains from MHD's own 401 reply.
+
+  test_basic_auth (+ "_close")    [only if ENABLE_BAUTH]
+      libcurl performs a Basic handshake; the raw client adds truncated
+      Base64, characters outside the Base64 alphabet, payloads without
+      the ':' separator, payloads decoding to binary zeros, padding in
+      the middle, an empty value, a 4 KiB payload, whitespace inside the
+      payload and an unknown authentication scheme.
+
+Automake conditionals used by this directory:
+  FORCE_USE_ZZUF_SOCAT, USE_COVERAGE, VHEAVY_TESTS  (already used before)
+  ENABLE_DAUTH, ENABLE_BAUTH                        (new here)
+All of them are defined in configure.ac.  The directory as a whole is
+only built when RUN_ZZUF_TESTS is true (see src/Makefile.am), which in
+turn requires --enable-heavy-tests and a usable libcurl.
+
+
+The deterministic self-check
+----------------------------
+
+Bit flipping can show that a parser crashes, but it cannot show that a
+parser produces the *wrong result*.  test_get_chunked_ext and
+test_put_chunked_ext therefore also verify, once per run, that a chunked
+body with chunk extensions is decoded byte-exactly and answered with
+"200".
+
+That verification obviously must not be fuzzed.  In socat mode zzuf only
+fuzzes the socat relay, so MHD's own port is a clean channel: the
+self-check connects to MHD directly, bypassing socat.  In direct mode
+every byte that MHD accepts is fuzzed and no clean channel exists, so the
+self-check is silently skipped there.  Since socat mode is mandatory
+whenever MHD is built with sanitizers, the sanitizer workflow below
+always includes the self-check.
+
+
+Running under the sanitizers
+----------------------------
+
+  ./configure --enable-heavy-tests --enable-asserts \
+              --enable-sanitizers=address,undefined
+  make
+  make -C src/testzzuf check
+
+Enabling sanitizers automatically forces the socat mode (see
+configure.ac), because zzuf and the sanitizers cannot both intercept the
+standard library calls.
+
+The Makefile appends
+
+  ASAN_OPTIONS=abort_on_error=1:detect_leaks=0
+  UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+
+to whatever configure has already put into ASAN_OPTIONS / UBSAN_OPTIONS.
+Aborting on the first error is essential: otherwise the input that
+produced the error is lost.  Leak detection is off because MHD
+legitimately abandons half-processed requests when the input is broken,
+and because the test process may be killed by zzuf.
+
+The values can be overridden per run:
+
+  make ZZUF_ASAN_OPTIONS=abort_on_error=1:detect_leaks=1 check
+
+
+Seeds, replaying and sweeping
+-----------------------------
+
+A single seed (the default is 0):
+
+  make ZZUF_SEED=1234 check
+
+A range of seeds; zzuf starts one child per seed and stops at the first
+crash:
+
+  make ZZUF_SEED_START=0 ZZUF_SEED_STOP=500 check
+
+ZZUF_SEED_START takes precedence over ZZUF_SEED.  A large range takes a
+correspondingly long time, so for CI it is usually better to sweep a
+moderate range per job and to give different jobs different ranges.
+
+Both runner scripts print a prominent, easy to grep block when a test
+fails:
+
+  ###############################################################
+  ## FUZZING TEST FAILED
+  ## test        : ./test_get_args
+  ## exit code   : 134
+  ## seed(s) used: 0
+  ## FAILING SEED(S): 17
+  ## Replay a single failing seed with:
+  ##   make ZZUF_SEED=17 TESTS=test_get_args check
+  ###############################################################
+
+In direct mode the failing seeds are extracted from zzuf's own per-child
+messages ("zzuf[s=17,r=...]: signal 6 (SIGABRT)").  In socat mode the
+test program runs outside of zzuf, so the runner reports the exit code
+(or the signal) of the *server side* together with the seed the run was
+started with.
+
+Other useful knobs:
+
+  make ZZUF_FLAGS='--ratio=0.01:0.1' check     extra zzuf flags
+  make SOCAT_FLAGS='-v' check                  extra socat flags
+  make TESTS='test_get_args test_pipelined' check   run a subset
+  ./configure --enable-heavy-tests=full        200 instead of 10 client
+                                               iterations per daemon
+
+
+What zzuf-style fuzzing fundamentally cannot find
+-------------------------------------------------
+
+This is important, because three of the four remotely triggerable bugs
+that were fixed on 2026-07-27 had been sitting in code that this
+directory nominally "covered".
+
+zzuf flips bits in an otherwise valid, libcurl-generated byte stream.
+That gives a *uniformly random* perturbation of a *structurally valid*
+input.  Consequently:
+
+  * It cannot invent structure that the generator never produces.
+    libcurl never emits chunk extensions, never pipelines, never sends a
+    request without a "Host:" header, and never sends an "Authorization:"
+    header unless the test asks it to.  No amount of bit flipping turns a
+    libcurl request into a request with a chunk extension: the fuzzer
+    would have to insert bytes, not change them, and it would have to
+    keep the surrounding framing intact.
+
+  * It essentially never produces a *semantically hostile but
+    syntactically valid* token.  "algorithm=BOGUS-ALGO" or a
+    "response=" with 128 hex digits are perfectly well-formed HTTP; they
+    are simply values a well-behaved client never sends.  Random bit
+    flips overwhelmingly produce inputs that MHD rejects in the first few
+    hundred bytes of parsing, so the deep parsers are never reached with
+    values that are valid enough to get there.  Reaching the over-long
+    "response" check even requires a *server generated* nonce, which a
+    random mutation can never produce.
+
+  * It only explores the option space that the tests configure.  The
+    read-buffer shift-back arithmetic simply does not run unless the
+    connection memory pool is below 1500 bytes.
+
+  * It only detects crashes and hangs.  A parser that silently accepts a
+    malformed chunk-extension line, or that mis-frames a request, looks
+    exactly like a healthy parser to this suite unless the resulting
+    memory access happens to be invalid.
+
+The additions described above buy back a good deal of this: the raw
+client provides the structures libcurl cannot express, the option matrix
+provides the configurations, and the deterministic self-check provides an
+oracle for "wrong result" instead of only "crash".  But they do it by
+hand-writing interesting inputs, which does not generalise.
+
+The complementary approach is a structure-aware harness, which lives in
+src/fuzz/.  There the HTTP request is *generated* from the fuzzer's
+random bytes (so the fuzzer can produce any header, any chunk extension,
+any authentication parameter, in any combination) and the fuzzer is
+coverage-guided, so it can learn its way into the deep parsers instead of
+stumbling into them.  Use src/testzzuf for "does MHD survive a hostile
+network", and src/fuzz for "does MHD parse hostile HTTP correctly".
+
 

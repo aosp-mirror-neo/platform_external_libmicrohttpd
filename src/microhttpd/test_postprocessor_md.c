@@ -32,6 +32,10 @@
 #include "microhttpd.h"
 #include "internal.h"
 #include "postprocessor.h"
+
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
 #if 0
 #include "mhd_panic.c"
 #include "mhd_str.c"

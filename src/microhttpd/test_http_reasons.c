@@ -29,6 +29,10 @@
 #include "microhttpd.h"
 #include "mhd_str.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 static const char *const r_unknown = "unknown";
 
 /* Return zero when no error is detected */

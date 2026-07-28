@@ -29,6 +29,10 @@
 #include "mhd_str.h"
 #include "mhd_assert.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 #ifndef MHD_STATICSTR_LEN_
 /**
  * Determine length of static string / macro strings at compile time.
@@ -115,7 +119,8 @@ expect_result_unquote_n (const char *const quoted, const size_t quoted_len,
                                              unquoted_len))
   {
     fprintf (stderr,
-             "'MHD_str_equal_caseless_quoted_bin_n ()' FAILED: Wrong result:\n");
+             "'MHD_str_equal_caseless_quoted_bin_n ()' FAILED: Wrong result:\n")
+    ;
     /* This does NOT print part of the string after binary zero */
     fprintf (stderr,
              "\tRESULT  : MHD_str_equal_caseless_quoted_bin_n('%.*s', %u, "
@@ -299,7 +304,8 @@ expect_match_caseless_n (const char *const quoted, const size_t quoted_len,
                                              unquoted_len))
   {
     fprintf (stderr,
-             "'MHD_str_equal_caseless_quoted_bin_n ()' FAILED: Wrong result:\n");
+             "'MHD_str_equal_caseless_quoted_bin_n ()' FAILED: Wrong result:\n")
+    ;
     /* This does NOT print part of the string after binary zero */
     fprintf (stderr,
              "\tRESULT  : MHD_str_equal_caseless_quoted_bin_n('%.*s', %u, "
@@ -452,7 +458,8 @@ expect_result_unmatch_n (const char *const quoted, const size_t quoted_len,
                                            unquoted_len))
   {
     fprintf (stderr,
-             "'MHD_str_equal_caseless_quoted_bin_n ()' FAILED: Wrong result:\n");
+             "'MHD_str_equal_caseless_quoted_bin_n ()' FAILED: Wrong result:\n")
+    ;
     /* This does NOT print part of the string after binary zero */
     fprintf (stderr,
              "\tRESULT  : MHD_str_equal_caseless_quoted_bin_n('%.*s', %u, "
@@ -698,7 +705,8 @@ expect_result_caseless_unmatch_n (const char *const quoted,
                                            unquoted_len))
   {
     fprintf (stderr,
-             "'MHD_str_equal_caseless_quoted_bin_n ()' FAILED: Wrong result:\n");
+             "'MHD_str_equal_caseless_quoted_bin_n ()' FAILED: Wrong result:\n")
+    ;
     /* This does NOT print part of the string after binary zero */
     fprintf (stderr,
              "\tRESULT  : MHD_str_equal_caseless_quoted_bin_n('%.*s', %u, "

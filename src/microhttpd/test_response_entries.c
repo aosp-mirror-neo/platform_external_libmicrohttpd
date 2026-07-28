@@ -15,6 +15,10 @@
 #include <string.h>
 #include <microhttpd.h>
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 
 static int
 expect_str (const char *actual, const char *expected)
@@ -699,7 +703,8 @@ main (int argc,
                                           "Keep-aLive, token-1"))
   {
     fprintf (stderr,
-             "Cannot add \"Connection\" header with \"Keep-aLive, token-1\".\n");
+             "Cannot add \"Connection\" header with \"Keep-aLive, token-1\".\n")
+    ;
     MHD_destroy_response (r);
     return 4;
   }
@@ -712,7 +717,8 @@ main (int argc,
                                           "Keep-aLive, token-2"))
   {
     fprintf (stderr,
-             "Cannot add \"Connection\" header with \"Keep-aLive, token-2\".\n");
+             "Cannot add \"Connection\" header with \"Keep-aLive, token-2\".\n")
+    ;
     MHD_destroy_response (r);
     return 4;
   }

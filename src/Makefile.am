@@ -9,6 +9,10 @@ SUBDIRS += testzzuf
 endif
 endif
 
+if ENABLE_FUZZING
+SUBDIRS += fuzz
+endif
+
 if BUILD_EXAMPLES
 SUBDIRS += examples
 endif

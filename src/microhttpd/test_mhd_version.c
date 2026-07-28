@@ -37,6 +37,10 @@
 #endif /* HAVE_STDLIB_H */
 #include "microhttpd.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 
 #ifdef PACKAGE_VERSION
 static const char str_macro_pkg_ver[] = PACKAGE_VERSION;

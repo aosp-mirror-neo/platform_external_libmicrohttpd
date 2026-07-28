@@ -1,0 +1,92 @@
+GNU libmicrohttpd -- containerised CI jobs
+==========================================
+
+Each job is a directory under contrib/ci/jobs/.  It holds a config.ini
+describing the container to use and an executable job.sh that is the
+entry point inside that container.  contrib/ci/ci.sh is the driver.
+
+Requirements
+------------
+
+  podman              (the driver calls it directly, not docker)
+  qemu-user-static    only for foreign architectures; without it
+                      "podman run --arch ..." fails in creative ways.
+                      See https://wiki.archlinux.org/title/Podman#Foreign_architectures
+
+Nothing else has to be installed on the host: every job builds and runs
+inside a debian:trixie container described by contrib/ci/Containerfile
+(or contrib/ci/<arch>.Containerfile, if one exists for the architecture
+the job asks for).
+
+Running
+-------
+
+One job, from the top of the source tree:
+
+  contrib/ci/ci.sh 2-test
+
+All of them, in numeric order:
+
+  contrib/ci/run-all-jobs
+
+The source tree is bind-mounted into the container at /workdir, so the
+jobs build in your checkout and leave their output there.
+
+The jobs
+--------
+
+  0-codespell     spell check.  Runs in nixery.dev/shell/codespell, does
+                  not build a container.  Advisory only
+                  (HALT_ON_FAILURE = False).
+  1-build         ./bootstrap && ./configure && make.  The smoke build:
+                  default configuration, nothing enabled.
+  2-test          --enable-asserts --enable-sanitizers=address,undefined
+                  plus the full "make check".  Dumps the logs of every
+                  failing test.
+  3-build-matrix  the build-configuration matrix: asserts on/off x
+                  sanitizers on/off x six digest/auth configurations x
+                  {64-bit, 32-bit}.  Clean out-of-tree build and
+                  "make check" per combination, with a summary table at
+                  the end.
+  4-fuzz          a few seconds per harness of the structure-aware
+                  fuzzers in src/fuzz, plus a replay of the whole
+                  committed corpus.
+  5-zzuf          src/testzzuf, the bit-level fuzzing suite, over a
+                  moderate sweep of zzuf seeds.
+  6-coverage      --enable-coverage build, full "make check", lcov +
+                  genhtml.  Writes the HTML report to
+                  contrib/ci/artifacts/coverage/$CI_COMMIT_REF/html/ and
+                  prints the path; it uploads nowhere.
+
+Every push, and nightly
+-----------------------
+
+Run on every push:
+
+  0-codespell, 1-build, 2-test, 4-fuzz
+
+That is the "--enable-asserts --enable-sanitizers" configuration that
+TESTING.md proposal P3 asks for on every push, plus a bounded fuzz run so
+a regression is caught in the pull request.
+
+Run nightly:
+
+  3-build-matrix, 5-zzuf, 6-coverage
+
+These are the expensive ones.  3-build-matrix is 48 builds; 5-zzuf and
+6-coverage each run the heavy-test suite.
+
+Why 3-build-matrix exists
+-------------------------
+
+MAX_DIGEST in src/microhttpd/digestauth.c is 16 in an MD5-only build and
+32 otherwise, so the out-of-bounds write fixed in commit 5a73c1ae
+overflows by a different amount - or not at all - depending only on
+configure flags.  Testing one configuration cannot answer whether a fix
+holds in every build a distribution ships.  See TESTING.md, proposal P3.
+
+Not part of CI: OSS-Fuzz
+------------------------
+
+contrib/oss-fuzz/ holds the OSS-Fuzz integration.  It is a separate,
+externally driven path and is deliberately not run from these jobs.

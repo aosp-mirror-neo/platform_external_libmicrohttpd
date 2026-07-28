@@ -31,6 +31,7 @@
 #include <string.h>
 
 #include "mhd_assert.h"
+#include "mhd_check.h"
 #include "mhd_limits.h"
 #include "mhd_assert.h"
 
@@ -2408,7 +2409,7 @@ MHD_base64_to_bin_n (const char *base64,
     const MHD_base64_map_type_ v4 = base64_char_to_value_ (in[i + 3]);
     if ((0 > v1) || (0 > v2))
       return 0; /* Invalid char or padding at first two positions */
-    mhd_assert (j < bin_size);
+    MHD_CHECK_RET_ (j < bin_size, 0);
     out[j++] = (uint8_t) (((uint8_t) (((uint8_t) v1) << 2))
                           | ((uint8_t) (((uint8_t) v2) >> 4)));
     if (0 > v3)

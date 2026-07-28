@@ -1,0 +1,111 @@
+Seed corpus for the src/fuzz harnesses
+======================================
+
+`<harness>-NN.bin` is the built-in seed corpus of that harness, dumped
+to disk.  Regenerate at any time with
+
+    ./fuzz_<harness> --write-corpus=<this directory>
+
+or, from the build tree,
+
+    make -C src/fuzz refresh-corpus
+
+Replay everything (this is what a CI regression run should do):
+
+    make -C src/fuzz check-corpus
+    # or, per harness:
+    ./fuzz_request --corpus-dir=src/fuzz/corpus
+
+Files belonging to another harness are simply uninteresting inputs for
+the harness that reads them, so pointing every harness at the whole
+directory is fine and gives some extra cross-pollination.
+
+
+fuzz_request seeds
+------------------
+
+  00  plain                            GET / with one header
+  01  content-length-body              body oracle, Content-Length
+  02  chunked-with-extensions          body oracle, chunk extensions
+                                       -> chunk-extension CRLF bug
+  03  chunked-split                    body oracle, chunk boundary split
+                                       across two send() calls
+  04  small-pool-trailing-query-arg    128..512 byte connection pool, no
+                                       header lines, "?novalue"
+                                       -> read-buffer shift-back bug
+  05  small-pool-trailing-query-arg-2  same with "?a=1&b"
+  06  digest-unknown-algorithm         algorithm=BOGUS
+                                       -> MHD_DIGEST_AUTH_ALGO3_INVALID
+                                          MHD_PANIC()
+  07  digest-overlong-response         401 challenge, then a replay on a
+                                       fresh connection with the
+                                       harvested nonce and a 128 hex
+                                       digit response=
+                                       -> stack buffer overflow
+  08  digest-userhash                  userhash=true with a 128 char
+                                       username
+  09  basic-auth                       Authorization: Basic
+  10  multipart-post                   chunked multipart/form-data
+  11  urlencoded-post                  application/x-www-form-urlencoded
+  12  folded-header                    obs-fold continuation line
+  13  pipelined                        two requests in one segment
+
+fuzz_str seeds
+--------------
+
+  Cover MHD_hex_to_bin (including the 128 character input that
+  digestauth.c used to allow into a 32 byte buffer), MHD_bin_to_hex[_z],
+  the percent-decoders (strict, lenient, in place), MHD_str_unquote,
+  MHD_str_quote, MHD_base64_to_bin_n, MHD_str[x]_to_uint64_n_ and the
+  token helpers.
+
+fuzz_auth_header seeds
+----------------------
+
+  Well-formed and broken Digest parameter lists (unknown algorithm,
+  extended `username*` notation, unterminated quoted strings, empty
+  parameter list, over-long values) plus Basic `token68` variants.
+
+fuzz_postprocessor seeds
+------------------------
+
+  urlencoded bodies with broken percent escapes, multipart bodies with
+  ordinary, degenerate ("-") and quote-containing boundaries, a
+  multipart Content-Type without a boundary, and a non-POST
+  Content-Type.
+
+
+known-findings/
+---------------
+
+Reproducers for the issues that this suite found in MHD 1.0.7 itself;
+see section 6 of ../README.  K1-K5 are fixed by ../../../patches/B17,
+B19, B20, B21 and B22; K6 is handled separately and is still open.  They
+are deliberately kept out of the main corpus directory so that
+`check-corpus` stays green on an unpatched tree.  Replay one with
+
+    ./fuzz_request --file=src/fuzz/corpus/known-findings/K1-digest-empty-realm.bin
+
+  K1-digest-empty-realm.bin          digestauth.c is_param_equal()
+                                     mhd_assert (0 != param->value.len)
+                                     -> patches/B17.diff
+  K2-chunkext-no-space.bin           connection.c handle_recv_no_space()
+                                     -> patches/B19.diff
+  K3-chunkext-stop-with-error.bin    connection.c
+                                     transmit_error_response_len()
+                                     -> patches/B20.diff
+  K4a-wsp-first-header.bin           connection.c get_req_header(),
+                                     CLIENT_DISCIPLINE_LVL <= -1
+                                     -> patches/B21.diff
+  K4b-empty-header-name.bin          connection.c get_req_header(),
+                                     CLIENT_DISCIPLINE_LVL <= -2
+                                     -> patches/B21.diff
+  K5-bare-cr-keep.bin                connection.c get_req_header(),
+                                     CLIENT_DISCIPLINE_LVL == -3
+                                     -> patches/B22.diff
+  K6-nonce-length-collision.bin      digestauth.c check_nonce_nc()
+                                     mhd_assert (0 == nn->nonce[noncelen])
+                                     -> still open
+
+Once a patch has landed, move the corresponding file into the main
+corpus directory so that `check-corpus` keeps it as a regression seed.

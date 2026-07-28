@@ -1,0 +1,85 @@
+# libFuzzer dictionary for fuzz_auth_header (GNU libmicrohttpd).
+#
+# The harness feeds byte 1.. as the raw value of an "Authorization:" header
+# into MHD_get_rq_dauth_params_() / MHD_get_rq_bauth_params_(), so every
+# token here is a fragment of that header value.  Byte 0 is a selector and
+# is not covered by the dictionary.
+
+# --- schemes ------------------------------------------------------------
+s_digest="Digest "
+s_basic="Basic "
+s_bearer="Bearer "
+s_negotiate="Negotiate "
+s_digest_nosp="Digest"
+s_digest_tab="Digest\x09"
+
+# --- separators / quoting ------------------------------------------------
+comma=","
+comma_sp=", "
+equals="="
+quote="\""
+empty_quoted="\"\""
+backslash="\\"
+escaped_quote="\\\""
+escaped_bs="\\\\"
+unterminated_quote="\"aaaa"
+sp=" "
+tab="\x09"
+
+# --- digest parameters ---------------------------------------------------
+p_username="username="
+p_username_q="username=\"user\""
+p_username_star="username*="
+p_username_star_v="username*=UTF-8''user"
+p_username_star_bad="username*=''"
+p_userhash="userhash="
+p_userhash_true="userhash=true"
+p_userhash_false="userhash=false"
+p_userhash_q="userhash=\"true\""
+p_realm="realm="
+p_realm_q="realm=\"TestRealm\""
+p_realm_empty="realm=\"\""
+p_nonce="nonce="
+p_nonce_q="nonce=\"0000\""
+p_uri="uri="
+p_uri_q="uri=\"/a\""
+p_response="response="
+p_response_q="response=\"00\""
+p_cnonce="cnonce="
+p_cnonce_q="cnonce=\"abcd\""
+p_nc="nc="
+p_nc_v="nc=00000001"
+p_nc_bad="nc=zzzzzzzz"
+p_opaque="opaque="
+p_qop="qop="
+p_algorithm="algorithm="
+p_unknown="frobnicate="
+
+# --- algorithm tokens ----------------------------------------------------
+a_md5="MD5"
+a_md5_sess="MD5-sess"
+a_sha256="SHA-256"
+a_sha256_sess="SHA-256-sess"
+a_sha512_256="SHA-512-256"
+a_sha512_256_sess="SHA-512-256-sess"
+a_sha512="SHA-512"
+a_sha1="SHA-1"
+a_case="sha-256"
+
+# --- qop tokens ----------------------------------------------------------
+q_auth="auth"
+q_auth_int="auth-int"
+q_both="auth,auth-int"
+q_quoted="qop=\"auth\""
+q_unknown="auth-xyz"
+
+# --- values --------------------------------------------------------------
+hex16="0123456789abcdef"
+hex32="0123456789abcdef0123456789abcdef"
+hex64="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+hex128="00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+b64_user_pass="dXNlcjpwYXNz"
+b64_pad="YQ=="
+b64_bad="!!!!"
+pct="%41"
+pct_bad="%zz"

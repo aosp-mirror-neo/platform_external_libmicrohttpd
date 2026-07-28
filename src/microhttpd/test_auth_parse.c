@@ -38,6 +38,10 @@
 #include "internal.h"
 #include "connection.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 
 #ifndef MHD_STATICSTR_LEN_
 /**
@@ -1059,10 +1063,65 @@ expect_digest_n (const char *hdr, size_t hdr_len,
     expect_digest_n(h,MHD_STATICSTR_LEN_(h),\
                     no,a,rs,un,ux,rm,ur,qr,qe,c,nc,uh,__LINE__)
 
+/**
+ * Check the properties of the algorithm and QOP enumerations that the
+ * consumers of the parsed header rely on.
+ *
+ * The "invalid" members have the numeric value zero, which means that the
+ * usual "is the client value allowed by the application" test
+ *
+ *     if (client_value != (client_value & allowed_mask))
+ *       reject ();
+ *
+ * lets the "invalid" value pass for every possible @a allowed_mask.  Every
+ * consumer must therefore reject the "invalid" value explicitly before
+ * using it.  Failing to do so made an unknown 'algorithm=' token in the
+ * request abort the whole daemon.
+ *
+ * @return zero if succeed, number of failures otherwise
+ */
+static unsigned int
+check_digest_enum_sentinels (void)
+{
+  unsigned int r = 0; /**< The number of errors */
+
+  if (0 != (unsigned int) MHD_DIGEST_AUTH_ALGO3_INVALID)
+  {
+    r++;
+    fprintf (stderr, "MHD_DIGEST_AUTH_ALGO3_INVALID is not zero. Line: %u\n",
+             (unsigned int) __LINE__);
+  }
+  if (0 != (unsigned int) MHD_DIGEST_BASE_ALGO_INVALID)
+  {
+    r++;
+    fprintf (stderr, "MHD_DIGEST_BASE_ALGO_INVALID is not zero. Line: %u\n",
+             (unsigned int) __LINE__);
+  }
+  if (0 != (unsigned int) MHD_DIGEST_AUTH_QOP_INVALID)
+  {
+    r++;
+    fprintf (stderr, "MHD_DIGEST_AUTH_QOP_INVALID is not zero. Line: %u\n",
+             (unsigned int) __LINE__);
+  }
+  /* The bitmask test alone does not reject the "invalid" values. */
+  if (0 != (((unsigned int) MHD_DIGEST_AUTH_ALGO3_INVALID)
+            & ~((unsigned int) MHD_DIGEST_AUTH_MULT_ALGO3_ANY_NON_SESSION)))
+  {
+    r++;
+    fprintf (stderr, "The bitmask check unexpectedly rejects "
+             "MHD_DIGEST_AUTH_ALGO3_INVALID. Line: %u\n",
+             (unsigned int) __LINE__);
+  }
+  return r;
+}
+
+
 static unsigned int
 check_digest (void)
 {
   unsigned int r = 0; /**< The number of errors */
+
+  r += check_digest_enum_sentinels ();
 
   r += expect_digest ("Digest", NULL, MHD_DIGEST_AUTH_ALGO3_MD5, \
                       NULL, NULL, NULL, NULL, NULL, \
@@ -1252,6 +1311,59 @@ check_digest (void)
                       NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
   r += expect_digest ("Digest algorithm=", NULL, \
                       MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  /* More spellings that the client may send and that must all be reported
+     as #MHD_DIGEST_AUTH_ALGO3_INVALID.  Note that the numeric value of
+     that enumeration member is zero, so a consumer that only validates the
+     value with a bitmask ("(algo & allowed) == algo") accepts every one of
+     these; the consumer must check for the INVALID value explicitly. */
+  r += expect_digest ("Digest algorithm=BOGUS", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=\"\"", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=\"BOGUS\"", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=SHA-512", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=SHA-1", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=MD5 ", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_MD5, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=\"MD5 \"", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=\" MD5\"", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=\"MD\\5\"", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_MD5, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  /* A duplicated parameter is accepted and the last occurrence wins.
+     Both orders are checked so that any change of that behaviour is
+     noticed: a client that can make different HTTP implementations pick
+     different occurrences of the same parameter is a source of trouble. */
+  r += expect_digest ("Digest algorithm=MD5,algorithm=BOGUS", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_INVALID, \
+                      NULL, NULL, NULL, NULL, NULL, \
+                      NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
+  r += expect_digest ("Digest algorithm=BOGUS,algorithm=MD5", NULL, \
+                      MHD_DIGEST_AUTH_ALGO3_MD5, \
                       NULL, NULL, NULL, NULL, NULL, \
                       NULL, MHD_DIGEST_AUTH_QOP_NONE, NULL, NULL, 0);
 

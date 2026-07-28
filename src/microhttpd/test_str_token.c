@@ -27,6 +27,10 @@
 #include <stdio.h>
 #include "mhd_str.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 
 static int
 expect_found_n (const char *str, const char *token, size_t token_len)

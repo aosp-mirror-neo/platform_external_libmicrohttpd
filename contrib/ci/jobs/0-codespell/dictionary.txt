@@ -1,0 +1,40 @@
+# List of "words" that codespell should ignore in the libmicrohttpd sources.
+#
+# Note: The word sensitivity depends on how the to-be-ignored word is
+#  spelled in codespell_lib/data/dictionary.txt.  F.e. if there is a word
+# 'foo' and you add 'Foo' _here_, codespell will continue to complain
+#  about 'Foo'.
+#
+# Entries here must be *deliberate*: an identifier, a protocol token, a
+# truncated string used by a test, or a spelling this project has chosen.
+# Real typos belong in a patch, not in this file.
+
+# "TE" is an HTTP header field name (RFC 9110 10.1.4), and the fuzzers
+# and the API headers name it.
+TE
+
+# HTTP method token registered by RFC 3253 (WebDAV versioning).
+CHECKIN
+
+# The RFC 7578 / RFC 2388 spelling used verbatim in postprocessor.c.
+IMPLEMENTORS
+
+# Local variable name for "content length" all over connection.c,
+# postprocessor.c and the fuzzers.
+clen
+
+# Appears inside autoconf quoting in configure.ac.
+fo
+
+# Deliberately truncated tokens used by the string-parser unit tests
+# (test_str_token*.c) and by src/testcurl/test_tricky.c, which sends
+# intentionally malformed requests.
+strin
+Strin
+Thi
+
+# libmicrohttpd consistently hyphenates this in its API documentation.
+re-use
+re-used
+re-uses
+re-using

@@ -39,6 +39,7 @@
 #endif
 
 #include "mhd_debug_funcs.h"
+#include "mhd_zzuf_common.h"
 #include "test_helpers.h"
 
 #ifndef MHD_STATICSTR_LEN_
@@ -98,6 +99,24 @@ static int use_long_header;
 static int use_long_uri;
 static int use_close;
 static int run_with_socat;
+/**
+ * Non-zero if this program sweeps the matrix of "hostile" daemon options
+ * (small connection memory pools, small connection limits, short timeouts
+ * and the various client discipline levels) instead of using the single
+ * "plain" set of daemon options.
+ * Derived from the "_hostile" marker in the program name.
+ */
+static int use_hostile_opts;
+
+/**
+ * The daemon option profile that is currently in use.
+ */
+static const struct zzuf_opt_profile *cur_profile;
+
+/**
+ * The connection timeout that the current daemon has been started with.
+ */
+static unsigned int expected_conn_timeout = MHD_TIMEOUT;
 
 #define TEST_BASE_URI "http:/" "/127.0.0.1/test_uri"
 #define TEST_BASE_URI_SOCAT "http:/" "/127.0.0.121/test_uri"
@@ -575,7 +594,7 @@ ahc_check (void *cls,
                "at line %d.\n", (int) __LINE__);
       param->err_flag = 1;
     }
-    else if (MHD_TIMEOUT != conn_info->connection_timeout)
+    else if (expected_conn_timeout != conn_info->connection_timeout)
     {
       fprintf (stderr, "The 'MHD_get_connection_info' has returned "
                "unexpected timeout value "
@@ -1177,9 +1196,13 @@ start_daemon_for_test (unsigned int daemon_flags, uint16_t *pport,
   struct MHD_OptionItem ops[] = {
     { MHD_OPTION_END, 0, NULL },
     { MHD_OPTION_END, 0, NULL },
+    { MHD_OPTION_END, 0, NULL },
+    { MHD_OPTION_END, 0, NULL },
+    { MHD_OPTION_END, 0, NULL },
     { MHD_OPTION_END, 0, NULL }
   };
   size_t num_opt;
+  size_t mem_limit;
 
   num_opt = 0;
 
@@ -1187,16 +1210,33 @@ start_daemon_for_test (unsigned int daemon_flags, uint16_t *pport,
   callback_param->err_flag = 0;
   callback_param->num_replies = 0;
 
+  /* The tests with intentionally huge URIs, headers or bodies need a memory
+     limit that matches the data they send; for all other tests the limit
+     comes from the option profile (which may be "keep the default"). */
   if (use_put_large)
+    mem_limit = (size_t) (PUT_LARGE_SIZE / 4);
+  else if (use_long_header || use_long_uri)
+    mem_limit = (size_t) (TEST_STRING_VLONG_LEN / 2);
+  else
+    mem_limit = cur_profile->mem_limit;
+  if (0 != mem_limit)
   {
     ops[num_opt].option = MHD_OPTION_CONNECTION_MEMORY_LIMIT;
-    ops[num_opt].value = (intptr_t) (PUT_LARGE_SIZE / 4);
+    ops[num_opt].value = (intptr_t) mem_limit;
     ++num_opt;
   }
-  else if (use_long_header || use_long_uri)
+  if (0 != cur_profile->conn_limit)
   {
-    ops[num_opt].option = MHD_OPTION_CONNECTION_MEMORY_LIMIT;
-    ops[num_opt].value = (intptr_t) (TEST_STRING_VLONG_LEN / 2);
+    ops[num_opt].option = MHD_OPTION_CONNECTION_LIMIT;
+    ops[num_opt].value = (intptr_t) cur_profile->conn_limit;
+    ++num_opt;
+  }
+  if (0 != cur_profile->discipline_lvl)
+  {
+    ops[num_opt].option = cur_profile->use_legacy_strict ?
+                          MHD_OPTION_STRICT_FOR_CLIENT :
+                          MHD_OPTION_CLIENT_DISCIPLINE_LVL;
+    ops[num_opt].value = (intptr_t) cur_profile->discipline_lvl;
     ++num_opt;
   }
   if (0 == (MHD_USE_INTERNAL_POLLING_THREAD & daemon_flags))
@@ -1205,11 +1245,12 @@ start_daemon_for_test (unsigned int daemon_flags, uint16_t *pport,
     ops[num_opt].value = (intptr_t) (FD_SETSIZE);
     ++num_opt;
   }
+  expected_conn_timeout = cur_profile->timeout;
   d = MHD_start_daemon (daemon_flags /* | MHD_USE_ERROR_LOG */,
                         *pport, NULL, NULL,
                         &ahc_check, callback_param,
                         MHD_OPTION_CONNECTION_TIMEOUT,
-                        (unsigned int) MHD_TIMEOUT,
+                        expected_conn_timeout,
                         MHD_OPTION_NOTIFY_COMPLETED,
                         &req_completed_cleanup, callback_param,
                         MHD_OPTION_ARRAY, ops,
@@ -1245,9 +1286,20 @@ start_daemon_for_test (unsigned int daemon_flags, uint16_t *pport,
 }
 
 
+/**
+ * Select the daemon option profile for the next daemon and print
+ * a description of the test that is about to start.
+ *
+ * @param daemon_flags the flags of the daemon that is about to be started
+ */
 static void
 print_test_starting (unsigned int daemon_flags)
 {
+  static unsigned int profile_num;
+
+  /* Every started daemon uses the next profile of the matrix, so that a
+     single run of a "_hostile" program sweeps the whole option matrix. */
+  cur_profile = zzuf_opt_profile (use_hostile_opts ? profile_num++ : 0);
   fflush (stderr);
   if (0 != (MHD_USE_INTERNAL_POLLING_THREAD & daemon_flags))
   {
@@ -1280,6 +1332,16 @@ print_test_starting (unsigned int daemon_flags)
       printf ("\nStarting test with%s thread safety with external polling.\n",
               ((0 != (MHD_USE_NO_THREAD_SAFETY & daemon_flags)) ? "out" : ""));
   }
+  if (use_hostile_opts)
+    printf ("Daemon options profile '%s' "
+            "(mem_limit=%lu, conn_limit=%u, timeout=%u, %s=%d).\n",
+            cur_profile->name,
+            (unsigned long) cur_profile->mem_limit,
+            cur_profile->conn_limit,
+            cur_profile->timeout,
+            cur_profile->use_legacy_strict ?
+            "strict_for_client" : "discipline_lvl",
+            cur_profile->discipline_lvl);
   fflush (stdout);
 }
 
@@ -1591,6 +1653,8 @@ run_all_checks (void)
         port += 20;
       else if (use_put_chunked)
         port += 25;
+      if (use_hostile_opts)
+        port += 40;
     }
   }
   else
@@ -1655,6 +1719,8 @@ main (int argc, char *const *argv)
   use_long_header = has_in_name (argv[0], "_long_header");
   use_long_uri = has_in_name (argv[0], "_long_uri");
   use_close = has_in_name (argv[0], "_close");
+  use_hostile_opts = has_in_name (argv[0], "_hostile");
+  cur_profile = zzuf_opt_profile (0);
 
   run_with_socat = has_param (argc, argv, "--with-socat");
   dry_run = has_param (argc, argv, "--dry-run") ||

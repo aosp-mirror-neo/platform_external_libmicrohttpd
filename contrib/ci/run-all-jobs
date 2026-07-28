@@ -1,0 +1,5 @@
+#!/bin/bash
+set -eax
+for JOB in $(ls $(dirname $0)/jobs | sort -n); do
+  $(dirname $0)/ci.sh $JOB;
+done;

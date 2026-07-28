@@ -1,0 +1,361 @@
+GNU libmicrohttpd -- OSS-Fuzz integration
+========================================
+
+This directory contains everything needed to run the in-process fuzzing
+harnesses of `src/fuzz/` on Google's OSS-Fuzz service: the build script,
+the project metadata, the container recipe, the seed-corpus packager,
+per-harness dictionaries and per-harness `.options` files.
+
+It is the "continuous" half of `TESTING.md` section **P4**; `src/fuzz/`
+is the other half.  Read `src/fuzz/README` first -- it explains what the
+four harnesses do, what they have already found, and how to run them
+without clang.
+
+
+-------------------------------------------------------------------
+0. This is deliberately NOT part of contrib/ci/
+-------------------------------------------------------------------
+
+**OSS-Fuzz is not a CI job and nothing here is wired into
+`contrib/ci/jobs/`.**  That is on purpose, at the maintainer's request:
+
+  * an OSS-Fuzz run is a *continuous, hosted, unbounded* campaign owned
+    by Google's infrastructure, not a bounded per-push check.  A CI job
+    must terminate in minutes and must be reproducible offline; neither
+    is true here;
+  * the artifacts in this directory are consumed by the
+    `google/oss-fuzz` repository (`projects/libmicrohttpd/`), not by
+    this tree's build system;
+  * running these builds needs Docker, the OSS-Fuzz base images and
+    network access.
+
+The bounded, in-tree fuzzing that *does* belong in CI already exists and
+is unrelated to this directory: `make -C src/fuzz check` (a few seconds
+per harness) and `make -C src/fuzz check-corpus` (corpus replay).  Wire
+*those* into `contrib/ci/`, never this.
+
+Nothing in this directory is referenced by any `Makefile.am`; adding it
+to the build system is not required and not wanted.
+
+
+-------------------------------------------------------------------
+1. Layout
+-------------------------------------------------------------------
+
+    build.sh                    the OSS-Fuzz build script
+    project.yaml                OSS-Fuzz project metadata
+    Dockerfile                  the base-builder container recipe
+    make_seed_corpus.sh         packages src/fuzz/corpus/ into
+                                $OUT/<fuzzer>_seed_corpus.zip
+    fuzz_request.options        per-harness libFuzzer options (max_len, dict)
+    fuzz_str.options
+    fuzz_auth_header.options
+    fuzz_postprocessor.options
+    dicts/fuzz_request.dict     per-harness fuzzing dictionaries
+    dicts/fuzz_str.dict
+    dicts/fuzz_auth_header.dict
+    dicts/fuzz_postprocessor.dict
+    README                      this file
+
+Of these, only `build.sh`, `project.yaml` and `Dockerfile` are copied
+into `google/oss-fuzz`; everything else is read out of the cloned
+libmicrohttpd checkout at build time, which is why the dictionaries and
+the corpus packager live here and not in the OSS-Fuzz repository.
+
+
+-------------------------------------------------------------------
+2. The four fuzz targets
+-------------------------------------------------------------------
+
+    fuzz_request            a real struct MHD_Daemon driven over a
+                            socketpair; consumes daemon options *and*
+                            stream segmentation from the input
+    fuzz_str                the mhd_str.c primitives with exactly-sized
+                            output buffers
+    fuzz_auth_header        MHD_get_rq_dauth_params_() /
+                            MHD_get_rq_bauth_params_()
+    fuzz_postprocessor      MHD_post_process()
+
+All four are single translation units that export
+
+    int LLVMFuzzerTestOneInput (const uint8_t *data, size_t size);
+
+unconditionally.  `-DFUZZ_NO_MAIN` (which `build.sh` passes) removes only
+the standalone driver's `main()` from `fuzz_common.h`; the fuzz target
+itself is never conditionally compiled.  There is no
+`LLVMFuzzerInitialize()` and none is needed: the two tuning knobs of
+`fuzz_request` (`MHD_FUZZ_MIN_DISCIPLINE`, `MHD_FUZZ_MIN_MEM_LIMIT`) are
+read lazily with `getenv()` on the first call and default to the *full*
+range (-3 and 0), which is what a fuzzing service should explore.
+
+### max_len
+
+`max_len` in the `.options` files is set to the point beyond which the
+harness ignores the extra bytes, so libFuzzer does not waste its budget:
+
+    fuzz_request        8192   4 configuration bytes + length-prefixed send
+                               segments (2-byte header, payload <= 0x3FFF,
+                               at most 96 segments over at most 8
+                               connections).  8 KiB comfortably holds the
+                               two-request %%NONCE%% digest handshake, a
+                               chunked body with extensions and trailers,
+                               and a body-oracle declaration.  Larger
+                               inputs are safe -- every segment is bounded
+                               independently -- but buy almost nothing.
+    fuzz_str             514   2 selector bytes + the payload, which the
+                               harness truncates to 512.
+    fuzz_auth_header    4097   1 selector byte + the Authorization header
+                               value, truncated to 4096.
+    fuzz_postprocessor  8196   4 selector bytes + the POST body, truncated
+                               to 8192.
+
+### close_fd_mask
+
+Deliberately **not** set.  The harnesses are quiet by default (MHD's
+error log is only enabled when `MHD_FUZZ_VERBOSE` is set, which never
+happens under libFuzzer), so there is no output to suppress -- while
+`fuzz_report_finding()` writes the description of a non-memory-safety
+finding straight to fd 2 and `MHD_PANIC()` writes to stderr too.  Closing
+those fds would throw away exactly the diagnostics that make a report
+actionable.
+
+
+-------------------------------------------------------------------
+3. What build.sh configures, and why
+-------------------------------------------------------------------
+
+    --enable-static --disable-shared --with-pic
+        fuzz_str and fuzz_auth_header call MHD-internal symbols compiled
+        with hidden visibility; they are not exported from
+        libmicrohttpd.so and can only be reached through the static
+        archive.  OSS-Fuzz also requires the binaries in $OUT to be
+        self-contained.
+    --enable-fuzzing
+        configures src/fuzz/Makefile.  Not strictly needed (build.sh
+        compiles the harnesses itself) but it keeps this build equivalent
+        to the documented developer build and fails loudly if src/fuzz/
+        ever stops being wired into configure.ac.
+    --enable-asserts
+        keeps mhd_assert() alive.  Assertions reachable from network input
+        are remote aborts; findings K1-K6 in `src/fuzz/README` section 6
+        are all of that kind and are invisible without this.
+    --disable-https
+        the harnesses never speak TLS (they hand MHD an already-connected
+        AF_UNIX socketpair through MHD_add_connection() and never set
+        MHD_USE_TLS), so HTTPS adds no coverage; it would drag in GnuTLS,
+        which OSS-Fuzz fuzzes separately, and it would make the
+        MemorySanitizer build impossible without an MSan-instrumented
+        GnuTLS.  With HTTPS off, libc and libpthread are the only
+        external dependencies.
+    --disable-curl --disable-doc --disable-examples --disable-tools
+        not needed, and they only add build time and dependencies.
+    --enable-build-type=neutral
+        the default, stated explicitly: "neutral" is the only build type
+        that does not inject its own optimisation/debug flags, so the
+        $CFLAGS supplied by OSS-Fuzz survive unmodified.
+
+`build.sh` never sets `--enable-sanitizers` or `--enable-coverage`:
+OSS-Fuzz provides instrumentation through `$CFLAGS`/`$CXXFLAGS`, and a
+second, configure-generated `-fsanitize=` set is a classic way to break
+an OSS-Fuzz build.  `$CFLAGS` is passed through to `configure` and to
+every harness compilation verbatim.
+
+The build is out-of-tree (`$WORK/mhd-build`), so `build.sh` never
+modifies the checkout.  The git checkout ships no `configure`, so
+`./bootstrap` runs first; because `bootstrap` ends in an `|| echo ...`
+chain and therefore cannot be trusted to return a failure status,
+`build.sh` checks for the product and falls back to `autoreconf -fi`.
+
+
+-------------------------------------------------------------------
+4. Building and running locally with infra/helper.py
+-------------------------------------------------------------------
+
+Prerequisites: Docker, python3, and a checkout of `google/oss-fuzz`.
+
+    git clone --depth 1 https://github.com/google/oss-fuzz
+    cd oss-fuzz
+    mkdir -p projects/libmicrohttpd
+    cp /path/to/libmicrohttpd/contrib/oss-fuzz/build.sh      projects/libmicrohttpd/
+    cp /path/to/libmicrohttpd/contrib/oss-fuzz/project.yaml  projects/libmicrohttpd/
+    cp /path/to/libmicrohttpd/contrib/oss-fuzz/Dockerfile    projects/libmicrohttpd/
+
+Build the image and the targets:
+
+    python3 infra/helper.py build_image libmicrohttpd
+    python3 infra/helper.py build_fuzzers --sanitizer address libmicrohttpd
+    python3 infra/helper.py check_build libmicrohttpd
+
+`build_fuzzers` accepts an optional path to a local source tree as its
+last argument, which is how you test uncommitted changes:
+
+    python3 infra/helper.py build_fuzzers --sanitizer address \
+        libmicrohttpd /path/to/libmicrohttpd
+
+Repeat for the other sanitizers and engines before submitting:
+
+    python3 infra/helper.py build_fuzzers --sanitizer undefined libmicrohttpd
+    python3 infra/helper.py build_fuzzers --sanitizer memory    libmicrohttpd
+    python3 infra/helper.py build_fuzzers --engine afl          libmicrohttpd
+    python3 infra/helper.py build_fuzzers --engine honggfuzz    libmicrohttpd
+
+Run one:
+
+    python3 infra/helper.py run_fuzzer libmicrohttpd fuzz_request
+    python3 infra/helper.py run_fuzzer libmicrohttpd fuzz_str
+    python3 infra/helper.py run_fuzzer libmicrohttpd fuzz_auth_header
+    python3 infra/helper.py run_fuzzer libmicrohttpd fuzz_postprocessor
+
+`run_fuzzer` passes anything after the target name to libFuzzer, and
+takes `--corpus-dir` for a persistent corpus:
+
+    python3 infra/helper.py run_fuzzer --corpus-dir=/tmp/mhd-corpus \
+        libmicrohttpd fuzz_request -- -max_total_time=600 -rss_limit_mb=4096
+
+Coverage report (needs a coverage build):
+
+    python3 infra/helper.py build_fuzzers --sanitizer coverage libmicrohttpd
+    python3 infra/helper.py coverage libmicrohttpd --fuzz-target fuzz_request
+
+
+-------------------------------------------------------------------
+5. What to do with a report
+-------------------------------------------------------------------
+
+An OSS-Fuzz report contains a *testcase* (the raw input bytes) and a
+stack trace.  Download the testcase from the report, then:
+
+    python3 infra/helper.py reproduce libmicrohttpd fuzz_request ./testcase
+
+The same bytes can also be replayed with the in-tree standalone driver,
+which needs no Docker and no clang:
+
+    ./configure --enable-fuzzing --enable-static --enable-asserts \
+                --enable-sanitizers=address,undefined
+    make -C src/fuzz check_PROGRAMS      # or: make -C src/fuzz check
+    src/fuzz/fuzz_request --file=./testcase
+
+Minimising a libFuzzer crash:
+
+    python3 infra/helper.py shell libmicrohttpd
+    # inside the container:
+    /out/fuzz_request -minimize_crash=1 -runs=100000 /testcase
+
+Once fixed, add the minimised input to `src/fuzz/corpus/` (or to
+`src/fuzz/corpus/known-findings/` if it stays interesting as a named
+regression) and commit it: `make_seed_corpus.sh` picks it up
+automatically on the next OSS-Fuzz build, so the case is re-run forever.
+
+Note that `fuzz_request` is **not** perfectly deterministic: MHD's digest
+nonces embed a millisecond timestamp, and whether a nonce counts as stale
+therefore depends on the wall clock.  Finding K6 is of that kind and
+reproduces in only a fraction of replays.  If ClusterFuzz marks a
+testcase "unreproducible" but the trace points at nonce handling, replay
+it in a loop before dismissing it.
+
+
+-------------------------------------------------------------------
+6. Seed corpora
+-------------------------------------------------------------------
+
+`make_seed_corpus.sh` builds one zip per target:
+
+    $OUT/fuzz_request_seed_corpus.zip
+    $OUT/fuzz_str_seed_corpus.zip
+    $OUT/fuzz_auth_header_seed_corpus.zip
+    $OUT/fuzz_postprocessor_seed_corpus.zip
+
+`src/fuzz/corpus/` is organised per harness by file-name prefix
+(`fuzz_<harness>-NN.bin`); inputs are *not* interchangeable between
+harnesses, because byte 0 selects a different thing in each, so each zip
+gets only its own prefix.  `src/fuzz/corpus/README` is documentation and
+is excluded.
+
+`src/fuzz/corpus/known-findings/K1..K6*.bin` are byte-exact reproducers
+for the six findings documented in `src/fuzz/README` section 6.  They are
+all `fuzz_request` inputs and are added to that target's seed corpus
+(prefixed `known-finding-`), which is what turns them into permanent
+regression tests: ClusterFuzz keeps every seed in the corpus and replays
+it on every run.
+
+Regenerating the corpus from the harnesses' built-in seeds:
+
+    make -C src/fuzz refresh-corpus     # ./fuzz_<name> --write-corpus=corpus
+
+That only rewrites the `fuzz_<harness>-NN.bin` files.  `known-findings/`
+is hand-maintained and is never touched by it.
+
+The script can be run by hand:
+
+    contrib/oss-fuzz/make_seed_corpus.sh . /tmp/out
+    unzip -l /tmp/out/fuzz_request_seed_corpus.zip
+
+
+-------------------------------------------------------------------
+7. Dictionaries
+-------------------------------------------------------------------
+
+`dicts/*.dict` are libFuzzer/AFL dictionaries (`name="value"`, with only
+`\\`, `\"` and `\xAB` as escapes -- CR and LF are written `\x0d`,
+`\x0a`).  They are installed to `$OUT/<fuzzer>.dict` and referenced from
+`$OUT/<fuzzer>.options`, which is how ClusterFuzz picks them up.
+
+They cover: HTTP methods and versions; framing headers
+(`Transfer-Encoding`, `Content-Length`, `chunked`, conflicting and
+malformed variants); chunk-size lines and chunk-extension syntax
+(`;ext`, `;ext=val`, `;ext="quoted"`, unterminated quotes) -- the exact
+grammar of commit `c13f4c64`; digest-auth parameters (`algorithm=`,
+`qop=`, `nonce=`, `realm=`, `userhash=`, `username*=`, `nc=`,
+`response=`) with the algorithm tokens `MD5`, `SHA-256`, `SHA-512-256`
+and their `-sess` variants plus deliberately unknown ones, and `auth` /
+`auth-int`; over-long hex `response=` values (commit `5a73c1ae`);
+percent-encoding, including truncated, invalid, double and overlong
+forms; base64; and the `multipart/form-data` and
+`application/x-www-form-urlencoded` vocabulary for the post processor.
+
+`fuzz_request.dict` additionally contains the literal `%%NONCE%%`
+placeholder, which the harness rewrites at send time into the most recent
+nonce the daemon issued.  Without it the digest `response=` code path is
+statistically unreachable (see `src/fuzz/README` section 2.3), so it is
+the single most valuable token in the file.
+
+The token list in `fuzz_common.h` (`fuzz_interesting_str`) is the
+generator's equivalent; the two are intentionally similar but not
+generated from each other.
+
+
+-------------------------------------------------------------------
+8. Known limitations
+-------------------------------------------------------------------
+
+ *  **The request-body oracle is inactive under libFuzzer.**  The
+    smuggling oracle of `fuzz_request` (see `src/fuzz/README` section
+    2.4) compares what MHD delivers to the application against ground
+    truth declared in an `op 1` segment of the input.  It is gated on
+    `fuzz_pristine`, which the standalone driver sets for un-mutated
+    inputs and which is never set when `FUZZ_NO_MAIN` is defined -- i.e.
+    it is off for every OSS-Fuzz execution.  That is correct and
+    intentional: libFuzzer mutates the request without mutating the
+    declaration, so the ground truth would be wrong and every mutated
+    input would look like a finding.  The consequence is that OSS-Fuzz
+    catches memory-safety bugs, UB, panics and assertion failures, but
+    *not* pure framing/desync defects of the `c13f4c64` kind.  Those stay
+    the job of the in-tree driver (`make -C src/fuzz check`), which is
+    another reason to keep running it in CI.
+ *  **i386 is not claimed.**  MHD's digest buffer sizes depend on the
+    word size (`TESTING.md` section P3), so a 32-bit build is genuinely
+    interesting, but OSS-Fuzz supports i386 only for ASan + libFuzzer and
+    that configuration has not been verified here.  Add
+    `- i386` to `architectures:` once it has been.
+ *  **centipede is not claimed** for the same reason: it is a supported
+    OSS-Fuzz engine but these targets have not been tried with it.
+ *  **Nondeterminism.**  See the note about digest nonce timestamps in
+    section 5.
+ *  The `[libfuzzer]` section of the `.options` files is the only one
+    used.  ClusterFuzz also understands other sections (for sanitizer
+    options and, in some versions, environment variables), but nothing
+    here depends on that, and the exact set of supported sections is not
+    documented in the OSS-Fuzz repository -- if you ever need to pin
+    `MHD_FUZZ_MIN_DISCIPLINE` or `MHD_FUZZ_MIN_MEM_LIMIT` for the hosted
+    runs, verify the mechanism against the ClusterFuzz sources first
+    rather than assuming it works.

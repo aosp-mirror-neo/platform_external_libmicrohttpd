@@ -1,0 +1,11 @@
+# The built fuzzing harnesses.
+/fuzz_request
+/fuzz_str
+/fuzz_auth_header
+/fuzz_postprocessor
+
+# Reproducers written for a failing input (MHD_FUZZ_CRASH_DIR).
+/crashes/
+
+# Seed corpora packaged for OSS-Fuzz by contrib/oss-fuzz/make_seed_corpus.sh.
+/*_seed_corpus.zip

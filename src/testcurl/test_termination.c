@@ -37,6 +37,10 @@
 #include <unistd.h>
 #include <curl/curl.h>
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 #ifndef __MINGW32__
 #include <sys/select.h>
 #include <sys/socket.h>

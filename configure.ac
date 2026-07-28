@@ -5832,6 +5832,26 @@ AS_VAR_IF([use_heavy_tests],["yes"],
 AM_CONDITIONAL([RUN_ZZUF_TESTS],[test "x$run_zzuf_tests" = "xyes"])
 AM_CONDITIONAL([FORCE_USE_ZZUF_SOCAT],[test "x$zzuf_socat_mandatory" = "xyes"])
 
+# Structure-aware in-process fuzzing harnesses (src/fuzz)
+AC_MSG_CHECKING([[whether to build the fuzzing harnesses]])
+AC_ARG_ENABLE([[fuzzing]],
+  [AS_HELP_STRING([[--enable-fuzzing]],
+    [build the in-process fuzzing harnesses in src/fuzz and run them ]
+    [as part of "make check"; requires a static build of the library ]
+    [and is only really useful together with --enable-asserts and ]
+    [--enable-sanitizers=address,undefined [no]])],
+  [], [enable_fuzzing="no"])
+AS_VAR_IF([enable_fuzzing], ["yes"],
+  [
+    AS_VAR_IF([enable_static], ["no"],
+      [AC_MSG_RESULT([[no]])
+       AC_MSG_ERROR([[--enable-fuzzing requires --enable-static]])],
+      [AC_MSG_RESULT([[yes]])])
+  ],
+  [enable_fuzzing="no"
+   AC_MSG_RESULT([[no]])])
+AM_CONDITIONAL([ENABLE_FUZZING], [[test "x$enable_fuzzing" = "xyes"]])
+
 # Final flags that may interfere with autoconf detections
 AS_CASE([${enable_build_type}],[debug|debugger],
   [ # Debug build or build for walking with debugger
@@ -5933,7 +5953,8 @@ src/examples/Makefile
 src/tools/Makefile
 src/testcurl/Makefile
 src/testcurl/https/Makefile
-src/testzzuf/Makefile])
+src/testzzuf/Makefile
+src/fuzz/Makefile])
 AC_OUTPUT
 
 # Finally: summary

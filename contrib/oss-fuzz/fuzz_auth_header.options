@@ -1,0 +1,3 @@
+[libfuzzer]
+dict = fuzz_auth_header.dict
+max_len = 4097

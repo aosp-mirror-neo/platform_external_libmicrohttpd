@@ -37,6 +37,10 @@
 #include "mhd_has_param.h"
 #include "mhd_sockets.h" /* only macros used */
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN

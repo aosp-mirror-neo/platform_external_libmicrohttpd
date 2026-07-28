@@ -1,0 +1,3 @@
+[libfuzzer]
+dict = fuzz_postprocessor.dict
+max_len = 8196

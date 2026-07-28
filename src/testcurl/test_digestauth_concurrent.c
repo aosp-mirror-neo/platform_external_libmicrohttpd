@@ -51,6 +51,10 @@
 
 #include "mhd_has_param.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 #ifndef CURL_VERSION_BITS
 #define CURL_VERSION_BITS(x,y,z) ((x) << 16 | (y) << 8 | (z))
 #endif /* ! CURL_VERSION_BITS */

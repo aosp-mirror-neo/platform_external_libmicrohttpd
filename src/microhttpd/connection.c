@@ -55,6 +55,7 @@
 #endif /* HAVE_SYS_PARAM_H */
 #include "mhd_send.h"
 #include "mhd_assert.h"
+#include "mhd_check.h"
 
 /**
  * Get whether bare LF in HTTP header and other protocol elements
@@ -1736,6 +1737,19 @@ try_ready_chunked_body (struct MHD_Connection *connection,
                                       sizeof(chunk_hdr));
   mhd_assert (chunk_hdr_len != 0);
   mhd_assert (chunk_hdr_len <= sizeof(chunk_hdr));
+  /* This underflow would turn 'write_buffer_send_offset' into a huge value and
+     make the following memcpy() write outside the write buffer.  */
+  if (MHD_CHECK_FAILED_ ((chunk_hdr_len + 2) <= max_chunk_hdr_len))
+  {
+    MHD_CHECK_LOG_ (connection->daemon,
+                    "(chunk_hdr_len + 2) <= max_chunk_hdr_len");
+#if defined(MHD_USE_THREADS)
+    MHD_mutex_unlock_chk_ (&response->mutex);
+#endif /* MHD_USE_THREADS */
+    connection_close_error (connection,
+                            NULL);
+    return MHD_NO;
+  }
   *p_finished = false;
   connection->write_buffer_send_offset =
     (max_chunk_hdr_len - (chunk_hdr_len + 2));
@@ -5693,10 +5707,23 @@ send_redirect_fixed_rq_target (struct MHD_Connection *c)
   do
   {
     const char chr = c->rq.hdrs.rq_line.rq_tgt[i++];
+    /* The number of bytes that this iteration appends to the buffer. */
+    const size_t add_size =
+      ((' ' == chr) || ('\t' == chr) || (0x0B == chr) || (0x0C == chr)) ? 3 : 1;
 
     mhd_assert ('\r' != chr); /* Replaced during request line parsing */
     mhd_assert ('\n' != chr); /* Rejected during request line parsing */
     mhd_assert (0 != chr); /* Rejected during request line parsing */
+    /* Check the remaining space before write. */
+    if (MHD_CHECK_FAILED_ (add_size <= fixed_uri_len - o))
+    {
+      MHD_CHECK_LOG_ (c->daemon,
+                      "add_size <= fixed_uri_len - o");
+      free (b);
+      connection_close_error (c,
+                              NULL);
+      return;
+    }
     switch (chr)
     {
     case ' ':
@@ -6696,8 +6723,15 @@ get_req_headers (struct MHD_Connection *c, bool process_footers)
       {
         last_elmnt_end = c->rq.version + HTTP_VER_LEN;
       }
-      mhd_assert (NULL != last_elmnt_end);
-      mhd_assert ((last_elmnt_end + 1) < c->read_buffer);
+      /* Check that @a last_elmnt_end points into the request that has
+         just been parsed, which lives entirely
+         between the start of the request line and the current read buffer
+         position.  */
+      MHD_CHECK_CONN_CLOSE_RET_ (c,
+                                 (NULL != last_elmnt_end) &&
+                                 (c->rq.method <= last_elmnt_end) &&
+                                 (last_elmnt_end < c->read_buffer - 1),
+                                 true);
       shift_back_size = (size_t) (c->read_buffer - (last_elmnt_end + 1));
       if (0 != c->read_buffer_offset)
         memmove (c->read_buffer - shift_back_size,

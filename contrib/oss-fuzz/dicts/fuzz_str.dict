@@ -1,0 +1,95 @@
+# libFuzzer dictionary for fuzz_str (GNU libmicrohttpd).
+#
+# Byte 0 selects the target primitive in src/microhttpd/mhd_str.c
+# (hex_to_bin, bin_to_hex[_z], pct_decode strict/lenient, in-place pct
+# decode, unquote, quote, base64, str_to_uint64, token list handling,
+# equal_caseless), byte 1 is an auxiliary knob, byte 2.. is the payload
+# (truncated to 512 bytes by the harness).  These tokens are payload
+# vocabulary.
+
+# --- hex (MHD_hex_to_bin / MHD_bin_to_hex) ------------------------------
+hex_digits="0123456789abcdef"
+hex_upper="0123456789ABCDEF"
+hex_odd="abc"
+hex_32="0123456789abcdef0123456789abcdef"
+hex_64="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+hex_128="00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+hex_bad="0g"
+hex_0x="0x41"
+
+# --- percent-encoding ----------------------------------------------------
+pct="%"
+pct_a="%41"
+pct_lower="%61"
+pct_space="%20"
+pct_plus="%2B"
+pct_pct="%25"
+pct_nul="%00"
+pct_cr="%0D"
+pct_lf="%0A"
+pct_slash="%2F"
+pct_bad="%zz"
+pct_trunc="%4"
+pct_trunc2="%"
+pct_double="%2525"
+pct_utf8="%C3%A4"
+pct_overlong="%C0%80"
+pct_surrogate="%ED%A0%80"
+plus="+"
+
+# --- quoted-string (MHD_str_unquote / MHD_str_quote) --------------------
+quote="\""
+empty_quoted="\"\""
+escaped_quote="\\\""
+escaped_bs="\\\\"
+bs="\\"
+bs_at_end="a\\"
+quoted_word="\"abc\""
+quoted_ws="\" \""
+quoted_ctl="\"\x01\""
+quoted_cr="\"\x0d\""
+
+# --- base64 --------------------------------------------------------------
+b64_user_pass="dXNlcjpwYXNz"
+b64_pad1="YQ=="
+b64_pad2="YWI="
+b64_nopad="YWJj"
+b64_bad="!!!!"
+b64_ws="YWJj\x20"
+b64_lf="YWJj\x0a"
+b64_url="-_"
+b64_eq="="
+
+# --- MHD_str_to_uint64 ---------------------------------------------------
+n_zero="0"
+n_one="1"
+n_max64="18446744073709551615"
+n_over64="18446744073709551616"
+n_neg="-1"
+n_plus="+1"
+n_lead0="000000000000000000001"
+n_hex="0x10"
+n_ws=" 1"
+n_dot="1.5"
+
+# --- token lists (MHD_str_remove_token_caseless_ etc.) ------------------
+comma=","
+comma_sp=", "
+sp=" "
+tab="\x09"
+crlf="\x0d\x0a"
+semi=";"
+equals="="
+t_chunked="chunked"
+t_identity="identity"
+t_gzip="gzip"
+t_close="close"
+t_keepalive="keep-alive"
+t_upgrade="Upgrade"
+t_100="100-continue"
+t_md5="MD5"
+t_sha256="SHA-256"
+t_sha512_256="SHA-512-256"
+t_auth="auth"
+t_auth_int="auth-int"
+t_empty_item=",,"

@@ -31,6 +31,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "mhd_assert.h"
+#include "mhd_check.h"
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
@@ -552,9 +553,23 @@ MHD_pool_reallocate (struct MemoryPool *pool,
     const size_t old_offset = mp_ptr_diff_ (old, pool->memory);
     const bool shrinking = (old_size > new_size);
 
+    /* 'old' and 'old_size' come from the caller and bound both the
+       memset() that shrinking performs a few lines below and the
+       memcpy (new_blc, old, old_size) at the end of this function, so this
+       is the precondition of two unbounded copies and must hold in release
+       builds too.  Failing it returns NULL, aka
+       "the pool cannot satisfy this request" and which leaves
+       'old' valid, so the connection is failed by the caller instead of
+       corrupting the pool.
+       The lower bound stays an assertion because mp_ptr_le_() only exists in
+       debug builds when user-poisoning is active; it is subsumed anyway,
+       because mp_ptr_diff_() wraps for a pointer below pool->memory and the
+       resulting huge 'old_offset' fails the bound below. */
     mhd_assert (mp_ptr_le_ (pool->memory, old));
     /* (pool->memory + pool->size >= (uint8_t*) old + old_size) */
-    mhd_assert ((pool->size - _MHD_RED_ZONE_SIZE) >= (old_offset + old_size));
+    MHD_CHECK_RET_ ((pool->size - _MHD_RED_ZONE_SIZE) >=
+                    (old_offset + old_size),
+                    NULL);
     /* Blocks "from the end" must not be reallocated */
     /* (old_size == 0 || pool->memory + pool->pos > (uint8_t*) old) */
     mhd_assert ((old_size == 0) || \

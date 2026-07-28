@@ -1,0 +1,3 @@
+[libfuzzer]
+dict = fuzz_str.dict
+max_len = 514

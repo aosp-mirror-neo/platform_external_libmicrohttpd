@@ -1,0 +1,54 @@
+#
+# OSS-Fuzz project configuration for GNU libmicrohttpd.
+#
+# This file should become projects/libmicrohttpd/project.yaml in the
+# google/oss-fuzz repository. 
+#
+
+homepage: "https://www.gnu.org/software/libmicrohttpd/"
+main_repo: "https://git.gnunet.org/libmicrohttpd.git"
+
+language: c
+primary_contact: "grothoff@gmail.com"
+
+# address:   the primary target.  The bug class that motivated this work
+#            (commit 5a73c1ae, a stack buffer overflow in the digest-auth hex
+#            decoder) is exactly what ASan catches, and the harnesses are
+#            written for it: every output buffer in fuzz_str and
+#            fuzz_auth_header is an exactly-sized heap allocation so that the
+#            ASan redzone traps a single-byte overrun.
+# undefined: MHD's parsers do a lot of pointer arithmetic and integer width
+#            juggling on attacker-controlled lengths (the read-buffer
+#            shift-back underflow of 29eaa56b is of that family).  UBSan is
+#            cheap and catches those before they become memory errors.
+# memory:    usable here only because build.sh configures --disable-https and
+#            --disable-curl, which leaves libc and libpthread as the only
+#            external dependencies; there is no uninstrumented third-party
+#            library to poison the results.  MSan finds the use of
+#            uninitialised parser state that ASan cannot see.
+sanitizers:
+  - address
+  - undefined
+  - memory
+
+# Only x86_64 is claimed here because it is the only architecture this
+# configuration has been exercised on.  i386 is interesting for MHD (the
+# severity of the MAX_DIGEST overflow depends on the word size, see
+# TESTING.md section P3) and can be added later, but OSS-Fuzz supports i386
+# only for the address sanitizer with libFuzzer, and the build has to be
+# verified first.
+architectures:
+  - x86_64
+
+# The harnesses are plain LLVMFuzzerTestOneInput() targets with no engine
+# specific code, so every in-process engine works.  ("centipede" is
+# deliberately not listed: it is supported by OSS-Fuzz but has not been
+# tried against these targets.)
+fuzzing_engines:
+  - libfuzzer
+  - afl
+  - honggfuzz
+
+# Documentation a triager should read before filing/handling a report.
+help_url: "https://git.gnunet.org/libmicrohttpd.git/tree/src/fuzz/README"
+

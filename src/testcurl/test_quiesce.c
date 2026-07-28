@@ -39,6 +39,10 @@
 #include "mhd_has_in_name.h"
 #include "mhd_has_param.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 
 #ifndef WINDOWS
 #include <unistd.h>

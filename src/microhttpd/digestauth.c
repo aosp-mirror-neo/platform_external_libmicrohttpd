@@ -48,6 +48,7 @@
 #include "mhd_compat.h"
 #include "mhd_bithelpers.h"
 #include "mhd_assert.h"
+#include "mhd_check.h"
 
 
 /**
@@ -2802,7 +2803,12 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
     if (digest_ext_error (da))
       return MHD_DAUTH_ERROR;
 #endif /* MHD_DIGEST_HAS_EXT_ERROR */
-    mhd_assert (sizeof (tmp1) >= (2 * digest_size));
+    /* MHD_bin_to_hex()
+       takes no output size and writes exactly 2 * digest_size bytes into
+       this fixed-size stack buffer */
+    MHD_CHECK_ (connection->daemon,
+                (2 * digest_size) <= sizeof (tmp1),
+                return MHD_DAUTH_ERROR);
     MHD_bin_to_hex (hash1_bin, digest_size, tmp1);
     if (! is_param_equal_caseless (&params->username, tmp1, 2 * digest_size))
       return MHD_DAUTH_WRONG_USERNAME;
@@ -2968,7 +2974,9 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
   mhd_assert (! da->hashing);
   digest_reset (da);
   /* Update digest with H(A1) */
-  mhd_assert (sizeof (tmp1) >= (digest_size * 2));
+  MHD_CHECK_ (connection->daemon,
+              (digest_size * 2) <= sizeof (tmp1),
+              return MHD_DAUTH_ERROR);
   if (NULL == userdigest)
     MHD_bin_to_hex (hash1_bin, digest_size, tmp1);
   else

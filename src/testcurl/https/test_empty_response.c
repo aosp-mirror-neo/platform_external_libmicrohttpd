@@ -36,6 +36,10 @@
 #include "tls_test_common.h"
 #include "tls_test_keys.h"
 
+/* Turn any MHD_PANIC() or failing mhd_assert() reached from this
+   test into a marked, classifiable test error (TESTING.md, P5). */
+#include "mhd_panic_tripwire.h"
+
 static int oneone;
 
 static enum MHD_Result
