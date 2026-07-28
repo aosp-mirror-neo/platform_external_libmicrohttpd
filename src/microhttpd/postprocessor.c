@@ -71,11 +71,14 @@ MHD_create_post_processor (struct MHD_Connection *connection,
                                    MHD_STATICSTR_LEN_ (
                                      MHD_HTTP_POST_ENCODING_FORM_URLENCODED)))
   {
-    if (! MHD_str_equal_caseless_n_ (MHD_HTTP_POST_ENCODING_MULTIPART_FORMDATA,
-                                     encoding,
-                                     MHD_STATICSTR_LEN_ (
-                                       MHD_HTTP_POST_ENCODING_MULTIPART_FORMDATA)))
+    if (! MHD_str_equal_caseless_n_ (
+          MHD_HTTP_POST_ENCODING_MULTIPART_FORMDATA,
+          encoding,
+          MHD_STATICSTR_LEN_ (
+            MHD_HTTP_POST_ENCODING_MULTIPART_FORMDATA)))
+    {
       return NULL;
+    }
     boundary =
       &encoding[MHD_STATICSTR_LEN_ (MHD_HTTP_POST_ENCODING_MULTIPART_FORMDATA)];
     /* Q: should this be "strcasestr"? */
