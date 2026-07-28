@@ -30,15 +30,15 @@ Here, "KEY" is the name we chose for our session cookie.
 
 MHD requires the user to provide the full cookie format string in order to set
 cookies.  In order to generate a unique cookie, our example creates a random
-64-character text string to be used as the value of the cookie:
+32-character text string to be used as the value of the cookie:
 
 @verbatim
 char value[128];
-char raw_value[65];
+char raw_value[33];
 
-for (unsigned int i=0;i<sizeof (raw_value);i++)
-  raw_value = 'A' + (rand () % 26); /* bad PRNG! */
-raw_value[64] = '\0';
+for (unsigned int i=0;i<sizeof (raw_value) - 1;i++)
+  raw_value[i] = 'A' + (rand () % 26); /* bad PRNG! */
+raw_value[sizeof (raw_value) - 1] = '\0';
 snprintf (value, sizeof (value),
           "%s=%s",
           "KEY",
@@ -49,12 +49,16 @@ Given this cookie value, we can then set the cookie header in our HTTP response
 as follows:
 
 @verbatim
-assert (MHD_YES ==
-        MHD_set_connection_value (connection,
-                                  MHD_HEADER_KIND,
-                                  MHD_HTTP_HEADER_SET_COOKIE,
-                                  value));
+if (MHD_NO ==
+    MHD_add_response_header (response,
+                             MHD_HTTP_HEADER_SET_COOKIE,
+                             value))
+  fprintf (stderr, "Failed to set session cookie header!\n");
 @end verbatim
+
+Note that the header has to be added @emph{before} the response is queued with
+@code{MHD_queue_response}; MHD refuses to modify a response that is already
+queued.
 
 
 @heading Remark: Session expiration
@@ -75,7 +79,7 @@ forms (which are dynamically created using values from previous
 POST requests from the same session) is available
 as the example @code{sessions.c}.
 
-Note that the example uses a simple, $O(n)$ linked list traversal to
+Note that the example uses a simple, @math{O(n)} linked list traversal to
 look up sessions and to expire old sessions.  Using a hash table and a
 heap would be more appropriate if a large number of concurrent
 sessions is expected.

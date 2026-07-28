@@ -3,9 +3,9 @@ any traffic, including the credentials, could be intercepted by anyone between
 the browser client and the server. Protecting the data while it is sent over
 unsecured lines will be the goal of this chapter.
 
-Since version 0.4, the @emph{MHD} library includes support for encrypting the
-traffic by employing SSL/TSL. If @emph{GNU libmicrohttpd} has been configured to
-support these, encryption and decryption can be applied transparently on the
+The @emph{MHD} library includes support for encrypting the traffic by employing
+TLS (the protocol formerly known as SSL). If @emph{GNU libmicrohttpd} has been configured to
+support this, encryption and decryption can be applied transparently on the
 data being sent, with only minimal changes to the actual source code of the example.
 
 
@@ -14,10 +14,10 @@ data being sent, with only minimal changes to the actual source code of the exam
 First, a private key for the server will be generated. With this key, the server
 will later be able to authenticate itself to the client---preventing anyone else
 from stealing the password by faking its identity. The @emph{OpenSSL} suite, which
-is available on many operating systems, can generate such a key. For the scope of
-this tutorial, we will be content with a 1024 bit key:
+is available on many operating systems, can generate such a key. 1024 bit keys are
+no longer considered secure, so we use a 2048 bit key:
 @verbatim
-> openssl genrsa -out server.key 1024
+> openssl genrsa -out server.key 2048
 @end verbatim
 @noindent
 
@@ -25,13 +25,16 @@ In addition to the key, a certificate describing the server in human readable to
 is also needed. This certificate will be attested with our aforementioned key. In this way,
 we obtain a self-signed certificate, valid for one year.
 
+To avoid unnecessary error messages in the browser, the certificate needs to carry a
+@emph{subjectAltName} that matches the @emph{URI}, for example, "localhost" or the domain
+(current browsers ignore the common name and look at the @emph{subjectAltName} only).
+
 @verbatim
-> openssl req -days 365 -out server.pem -new -x509 -key server.key
+> openssl req -days 365 -out server.pem -new -x509 -key server.key \
+      -addext "subjectAltName=DNS:localhost"
 @end verbatim
 @noindent
 
-To avoid unnecessary error messages in the browser, the certificate needs to
-have a name that matches the @emph{URI}, for example, "localhost" or the domain.
 If you plan to have a publicly reachable server, you will need to ask a trusted third party,
 called @emph{Certificate Authority}, or @emph{CA}, to attest the certificate for you. This way,
 any visitor can make sure the server's identity is real.
@@ -48,7 +51,7 @@ We merely have to extend the server program so that it loads the two files into 
 
 @verbatim
 int
-main ()
+main (void)
 {
   struct MHD_Daemon *daemon;
   char *key_pem;
@@ -68,7 +71,7 @@ main ()
 and then we point the @emph{MHD} daemon to it upon initialization.
 @verbatim
 
-  daemon = MHD_start_daemon (MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_SSL,
+  daemon = MHD_start_daemon (MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_TLS,
   	   		     PORT, NULL, NULL,
                              &answer_to_connection, NULL,
                              MHD_OPTION_HTTPS_MEM_KEY, key_pem,
@@ -138,7 +141,7 @@ To do this, you will need to link your application against @emph{gnutls}.
 Next, when you start the MHD daemon, you must specify the root CA that you're
 willing to trust:
 @verbatim
-  daemon = MHD_start_daemon (MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_SSL,
+  daemon = MHD_start_daemon (MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_TLS,
   	   		     PORT, NULL, NULL,
                              &answer_to_connection, NULL,
                              MHD_OPTION_HTTPS_MEM_KEY, key_pem,
@@ -157,7 +160,7 @@ obtain the raw GnuTLS session handle from @emph{MHD} using
 #include <gnutls/x509.h>
 
 gnutls_session_t tls_session;
-union MHD_ConnectionInfo *ci;
+const union MHD_ConnectionInfo *ci;
 
 ci = MHD_get_connection_info (connection,
                               MHD_CONNECTION_INFO_GNUTLS_SESSION);
@@ -333,7 +336,7 @@ of one domain is that you need to provide a callback instead of the key
 and certificate.  For example, when you start the MHD daemon, you could
 do this:
 @verbatim
-  daemon = MHD_start_daemon (MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_SSL,
+  daemon = MHD_start_daemon (MHD_USE_INTERNAL_POLLING_THREAD | MHD_USE_TLS,
   	   		     PORT, NULL, NULL,
                              &answer_to_connection, NULL,
                              MHD_OPTION_HTTPS_CERT_CALLBACK, &sni_callback,
@@ -348,11 +351,11 @@ as follows:
 @deftypefn {Function Pointer} int {*gnutls_certificate_retrieve_function2} (gnutls_session_t, const gnutls_datum_t* req_ca_dn, int nreqs, const gnutls_pk_algorithm_t* pk_algos, int pk_algos_length, gnutls_pcert_st** pcert, unsigned int *pcert_length, gnutls_privkey_t * pkey)
 
 @table @var
-@item req_ca_cert
+@item req_ca_dn
 is only used in X.509 certificates. Contains a list with the CA names that the server considers trusted. Normally we should send a certificate that is signed by one of these CAs. These names are DER encoded. To get a more meaningful value use the function @code{gnutls_x509_rdn_get()}.
 
 @item pk_algos
-contains a list with server’s acceptable signature algorithms. The certificate returned should support the server’s given algorithms.
+contains a list with server's acceptable signature algorithms. The certificate returned should support the server's given algorithms.
 
 @item pcert
 should contain a single certificate and public or a list of them.

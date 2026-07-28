@@ -92,7 +92,9 @@ send_page (struct MHD_Connection *connection,
   enum MHD_Result ret;
   struct MHD_Response *response;
 
-  response = MHD_create_response_from_buffer_static (strlen (page), page);
+  /* NOTE: we let MHD make its own copy of the page, as some of the
+     pages we serve live in a buffer on the stack of the caller. */
+  response = MHD_create_response_from_buffer_copy (strlen (page), page);
   if (! response)
     return MHD_NO;
   if (MHD_YES !=
@@ -319,7 +321,7 @@ answer_to_connection (void *cls,
                       con_info->answercode);
   }
 
-  /* Note a GET or a POST, generate error */
+  /* Not a GET or a POST, generate error */
   return send_page (connection,
                     errorpage,
                     MHD_HTTP_BAD_REQUEST);

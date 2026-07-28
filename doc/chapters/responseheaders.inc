@@ -30,7 +30,6 @@ answer_to_connection (void *cls, struct MHD_Connection *connection,
 		      const char *upload_data,
               	      size_t *upload_data_size, void **req_cls)
 {
-  unsigned char *buffer = NULL;
   struct MHD_Response *response;
 @end verbatim
 @noindent
@@ -58,46 +57,24 @@ server side and if so, the client should be informed with @code{MHD_HTTP_INTERNA
 
 @verbatim
       /* error accessing file */
-     if (fd != -1) close (fd);
+      if (fd != -1) close (fd);
       const char *errorstr =
         "<html><body>An internal server error has occurred!\
                               </body></html>";
       response =
-	MHD_create_response_from_buffer (strlen (errorstr),
-				         (void *) errorstr,
-				         MHD_RESPMEM_PERSISTENT);
-      if (response)
+	MHD_create_response_from_buffer_static (strlen (errorstr),
+				                errorstr);
+      if (NULL != response)
         {
           ret =
             MHD_queue_response (connection, MHD_HTTP_INTERNAL_SERVER_ERROR,
                                 response);
           MHD_destroy_response (response);
 
-          return MHD_YES;
+          return ret;
         }
       else
         return MHD_NO;
-  if (!ret)
-    {
-      const char *errorstr = "<html><body>An internal server error has occurred!\
-                              </body></html>";
-
-      if (buffer) free(buffer);
-
-      response = MHD_create_response_from_buffer (strlen(errorstr), (void*) errorstr,
-                                                  MHD_RESPMEM_PERSISTENT);
-
-      if (response)
-        {
-          ret = MHD_queue_response (connection,
-	      			    MHD_HTTP_INTERNAL_SERVER_ERROR,
-				    response);
-          MHD_destroy_response (response);
-
-          return MHD_YES;
-        }
-      else return MHD_NO;
-    }
 @end verbatim
 @noindent
 
@@ -113,10 +90,8 @@ But in the case of success a response will be constructed directly from the file
     }
 
   response =
-    MHD_create_response_from_fd_at_offset (sbuf.st_size, fd, 0);
+    MHD_create_response_from_fd_at_offset64 ((uint64_t) sbuf.st_size, fd, 0);
   MHD_add_response_header (response, "Content-Type", MIMETYPE);
-  ret = MHD_queue_response (connection, MHD_HTTP_OK, response);
-  MHD_destroy_response (response);
 @end verbatim
 @noindent
 
@@ -129,7 +104,7 @@ MHD_add_response_header(response, "Content-Type", MIMETYPE);
 @end verbatim
 @noindent
 We do not have to append a colon expected by the protocol behind the first
-field---@emph{GNU libhttpdmicro} will take care of this.
+field---@emph{GNU libmicrohttpd} will take care of this.
 
 The function finishes with the well-known lines
 @verbatim
@@ -145,7 +120,7 @@ Find a @emph{PNG} file you like and save it to the directory the example is run 
 @code{picture.png}. You should find the image displayed on your browser if everything worked well.
 
 @heading Remarks
-The include file of the @emph{MHD} library comes with the header types mentioned in @emph{RFC 2616}
+The include file of the @emph{MHD} library comes with the header types mentioned in @emph{RFC 9110}
 already defined as macros. Thus, we could have written @code{MHD_HTTP_HEADER_CONTENT_TYPE} instead
 of @code{"Content-Type"} as well. However, one is not limited to these standard headers and could
 add custom response headers without violating the protocol. Whether, and how, the client would react
@@ -169,8 +144,8 @@ instantly, postpone the queuing in the callback with the @code{sleep} function f
 Now start two instances of your browser (or even use two machines) and see how the second client
 is put on hold while the first waits for his request on the slow file to be fulfilled.
 
-Finally, change the sourcecode to use @code{MHD_USE_THREAD_PER_CONNECTION} when the daemon is
-started and try again.
+Finally, change the sourcecode to add @code{MHD_USE_THREAD_PER_CONNECTION} to the daemon's flags
+(this flag must be combined with @code{MHD_USE_INTERNAL_POLLING_THREAD}) and try again.
 
 
 @item

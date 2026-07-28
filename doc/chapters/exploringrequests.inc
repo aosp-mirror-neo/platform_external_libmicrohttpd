@@ -1,5 +1,5 @@
 This chapter will deal with the information which the client sends to the
-server at every request. We are going to examine the most useful fields of such an request
+server at every request. We are going to examine the most useful fields of such a request
 and print them out in a readable manner. This could be useful for logging facilities.
 
 The starting point is the @emph{hellobrowser} program with the former response removed.
@@ -9,9 +9,9 @@ just return MHD_NO after we have probed the request. This way, the connection is
 without much ado by the server.
 
 @verbatim
-static int 
-answer_to_connection (void *cls, struct MHD_Connection *connection, 
-                      const char *url, 
+static enum MHD_Result
+answer_to_connection (void *cls, struct MHD_Connection *connection,
+                      const char *url,
 		      const char *method, const char *version, 
 		      const char *upload_data, 
                       size_t *upload_data_size, void **req_cls)
@@ -34,15 +34,16 @@ printf ("New %s request for %s using version %s\n", method, url, version);
 @end verbatim
 @noindent
 
-The rest of the information is a bit more hidden. Nevertheless, there is lot of it sent from common
+The rest of the information is a bit more hidden. Nevertheless, there is a lot of it sent from common
 Internet browsers. It is stored in "key-value" pairs and we want to list what we find in the header. 
 As there is no mandatory set of keys a client has to send, each key-value pair is printed out one by
 one until there are no more left. We do this by writing a separate function which will be called for
 each pair just like the above function is called for each HTTP request. 
 It can then print out the content of this pair.
 @verbatim
-int print_out_key (void *cls, enum MHD_ValueKind kind, 
-                   const char *key, const char *value)
+static enum MHD_Result
+print_out_key (void *cls, enum MHD_ValueKind kind,
+               const char *key, const char *value)
 {
   printf ("%s: %s\n", key, value);
   return MHD_YES;
@@ -63,8 +64,8 @@ so the last parameter can be NULL.
 All in all, this constitutes the complete @code{logging.c} program for this chapter which can be 
 found in the @code{examples} section.
 
-Connecting with any modern Internet browser should yield a handful of keys. You should try to 
-interpret them with the aid of @emph{RFC 2616}.
+Connecting with any modern Internet browser should yield a handful of keys. You should try to
+interpret them with the aid of @emph{RFC 9110}.
 Especially worth mentioning is the "Host" key which is often used to serve several different websites
 hosted under one single IP address but reachable by different domain names (this is called virtual hosting).
 
@@ -93,9 +94,10 @@ returned accompanied by an informative message.
 A very interesting information has still been ignored by our logger---the client's IP address. 
 Implement a callback function 
 @verbatim
-static int on_client_connect (void *cls,
-                              const struct sockaddr *addr,
-			      socklen_t addrlen)
+static enum MHD_Result
+on_client_connect (void *cls,
+                   const struct sockaddr *addr,
+                   socklen_t addrlen)
 @end verbatim
 @noindent
 that prints out the IP address in an appropriate format. You might want to use the POSIX function

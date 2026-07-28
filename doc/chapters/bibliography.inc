@@ -1,16 +1,16 @@
 @heading API reference
 @itemize @bullet
 @item
-The @emph{GNU libmicrohttpd} manual by Marco Maggi and Christian Grothoff 2008 
-@uref{http://gnunet.org/libmicrohttpd/microhttpd.html}
+The @emph{GNU libmicrohttpd} manual by Marco Maggi and Christian Grothoff
+@uref{https://www.gnu.org/software/libmicrohttpd/manual/libmicrohttpd.html}
 
 @item
 All referenced RFCs can be found on the website of @emph{The Internet Engineering Task Force}
-@uref{http://www.ietf.org/}
+@uref{https://www.ietf.org/}
 
 @item
-@emph{RFC 2616}: Fielding, R., Gettys, J., Mogul, J., Frystyk, H., and T. Berners-Lee,
-"Hypertext Transfer Protocol -- HTTP/1.1", RFC 2016, January 1997.
+@emph{RFC 2616}: Fielding, R., Gettys, J., Mogul, J., Frystyk, H., Masinter, L., Leach, P.,
+and T. Berners-Lee, "Hypertext Transfer Protocol -- HTTP/1.1", RFC 2616, June 1999.
 
 @item
 @emph{RFC 2617}: Franks, J., Hallam-Baker, P., Hostetler, J., Lawrence, S., Leach, P.,
@@ -20,13 +20,14 @@ Luotonen, A., and L. Stewart, "HTTP Authentication: Basic and Digest Access Auth
 @emph{RFC 6455}: Fette, I., Melnikov, A., "The WebSocket Protocol", RFC 6455, December 2011.
 
 
-@item 
+@item
 A well--structured @emph{HTML} reference can be found on
 @uref{http://www.echoecho.com/html.htm}
 
-For those readers understanding German or French, there is an excellent document both for learning
-@emph{HTML} and for reference, whose English version unfortunately has been discontinued.
-@uref{http://de.selfhtml.org/} and @uref{http://fr.selfhtml.org/}
+For those readers understanding German, there is an excellent document both for learning
+@emph{HTML} and for reference, whose English and French versions unfortunately have been
+discontinued.
+@uref{https://wiki.selfhtml.org/}
 
 
 @end itemize

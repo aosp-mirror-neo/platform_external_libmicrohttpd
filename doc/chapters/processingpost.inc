@@ -17,7 +17,7 @@ edit field for the name.
 const char* askpage = "<html><body>\
                        What's your name, Sir?<br>\
                        <form action=\"/namepost\" method=\"post\">\
-                       <input name=\"name\" type=\"text\"\
+                       <input name=\"name\" type=\"text\">\
                        <input type=\"submit\" value=\" Send \"></form>\
                        </body></html>";
 @end verbatim
@@ -30,7 +30,7 @@ We also prepare the answer page, where the name is to be filled in later, and an
 as the response for anything but proper @emph{GET} and @emph{POST} requests:
 
 @verbatim
-const char* greatingpage="<html><body><h1>Welcome, %s!</center></h1></body></html>";
+const char* greetingpage="<html><body><h1>Welcome, %s!</h1></body></html>";
 
 const char* errorpage="<html><body>This doesn't seem to be right.</body></html>";
 @end verbatim
@@ -67,11 +67,13 @@ struct connection_info_struct
 @noindent
 
 With these information available to the iterator function, it is able to fulfill its task.
-Once it has composed the greeting string, it returns @code{MHD_NO} to inform the post processor
-that it does not need to be called again. Note that this function does not handle processing
-of data for the same @code{key}. If we were to expect that the name will be posted in several
-chunks, we had to expand the namestring dynamically as additional parts of it with the same @code{key}
-came in. But in this example, the name is assumed to fit entirely inside one single packet.
+Once it has composed the greeting string, it returns @code{MHD_YES} so that the post processor
+keeps parsing the remainder of the upload. Returning @code{MHD_NO} would instead abort the
+parsing and make the next call to @code{MHD_post_process} fail. Note that this function does not
+handle processing of data for the same @code{key}. If we were to expect that the name will be
+posted in several chunks, we had to expand the namestring dynamically as additional parts of it
+with the same @code{key} came in. But in this example, the name is assumed to fit entirely inside
+one single packet.
 
 @verbatim
 static enum MHD_Result
@@ -90,12 +92,10 @@ iterate_post (void *coninfo_cls, enum MHD_ValueKind kind, const char *key,
           answerstring = malloc (MAXANSWERSIZE);
           if (!answerstring) return MHD_NO;
 
-          snprintf (answerstring, MAXANSWERSIZE, greatingpage, data);
+          snprintf (answerstring, MAXANSWERSIZE, greetingpage, data);
           con_info->answerstring = answerstring;
         }
       else con_info->answerstring = NULL;
-
-      return MHD_NO;
     }
 
   return MHD_YES;
@@ -110,7 +110,7 @@ string. This cleanup function must take into account that it will also be called
 requests other than @emph{POST} requests.
 
 @verbatim
-void
+static void
 request_completed (void *cls, struct MHD_Connection *connection,
      		        void **req_cls,
                         enum MHD_RequestTerminationCode toe)
@@ -136,7 +136,8 @@ in the main function.
 
 @verbatim
 ...
-daemon = MHD_start_daemon (MHD_USE_INTERNAL_POLLING_THREAD, PORT, NULL, NULL,
+daemon = MHD_start_daemon (MHD_USE_AUTO | MHD_USE_INTERNAL_POLLING_THREAD,
+                           PORT, NULL, NULL,
                            &answer_to_connection, NULL,
 			   MHD_OPTION_NOTIFY_COMPLETED, &request_completed, NULL,
 			   MHD_OPTION_END);
@@ -218,8 +219,10 @@ considered---all of it.
 
       if (*upload_data_size != 0)
         {
-          MHD_post_process (con_info->postprocessor, upload_data,
-	                    *upload_data_size);
+          if (MHD_YES !=
+              MHD_post_process (con_info->postprocessor, upload_data,
+	                        *upload_data_size))
+            return MHD_NO;
           *upload_data_size = 0;
 
           return MHD_YES;

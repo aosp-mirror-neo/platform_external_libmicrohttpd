@@ -1,3 +1,4 @@
+/upgrade
 /tlsauthentication
 /simplepost
 /sessions
@@ -5,6 +6,7 @@
 /logging
 /largepost
 /hellobrowser
+/callbackresponse
 /basicauthentication
 *.exe
 *.o

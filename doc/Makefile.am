@@ -24,6 +24,7 @@ microhttpd_TEXINFOS = \
 microhttpd_tutorial_TEXINFOS = \
   chapters/basicauthentication.inc \
   chapters/bibliography.inc \
+  chapters/callbackresponse.inc \
   chapters/exploringrequests.inc \
   chapters/hellobrowser.inc \
   chapters/introduction.inc \
@@ -32,7 +33,7 @@ microhttpd_tutorial_TEXINFOS = \
   chapters/responseheaders.inc \
   chapters/tlsauthentication.inc \
   chapters/sessions.inc \
-  chapters/websocket.inc
+  chapters/upgrade.inc
 
 EXTRA_DIST = \
   $(microhttpd_TEXINFOS) $(microhttpd_tutorial_TEXINFOS) \

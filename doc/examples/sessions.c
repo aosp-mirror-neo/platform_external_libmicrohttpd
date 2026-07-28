@@ -449,9 +449,8 @@ not_found_page (const void *cls,
   /* unsupported HTTP method */
   response = MHD_create_response_from_buffer_static (strlen (NOT_FOUND_ERROR),
                                                      NOT_FOUND_ERROR);
-  ret = MHD_queue_response (connection,
-                            MHD_HTTP_NOT_FOUND,
-                            response);
+  /* NOTE: headers must be added _before_ the response is queued,
+     MHD refuses to modify a response that was already queued. */
   if (MHD_YES !=
       MHD_add_response_header (response,
                                MHD_HTTP_HEADER_CONTENT_TYPE,
@@ -461,6 +460,9 @@ not_found_page (const void *cls,
              "Failed to set content type header!\n");
     /* return response without content type anyway ... */
   }
+  ret = MHD_queue_response (connection,
+                            MHD_HTTP_NOT_FOUND,
+                            response);
   MHD_destroy_response (response);
   return ret;
 }
@@ -474,7 +476,7 @@ static const struct Page pages[] = {
   { "/2", "text/html", &fill_v1_v2_form, NULL },
   { "/S", "text/html", &serve_simple_form, SUBMIT_PAGE },
   { "/F", "text/html", &serve_simple_form, LAST_PAGE },
-  { NULL, NULL, &not_found_page, NULL }   /* 404 */
+  { NULL, "text/html", &not_found_page, NULL }   /* 404 */
 };
 
 

@@ -39,7 +39,7 @@ static const char *askpage =
   "</body></html>";
 
 #define GREETINGPAGE \
-        "<html><body><h1>Welcome, %s!</center></h1></body></html>"
+        "<html><body><h1>Welcome, %s!</h1></body></html>"
 
 static const char *errorpage =
   "<html><body>This doesn't seem to be right.</body></html>";
@@ -174,12 +174,12 @@ answer_to_connection (void *cls,
     }
     return MHD_YES;
   }
-  if (GET == con_info->connectiontype)
+  if (0 == strcmp (method, "GET"))
   {
     return send_page (connection,
                       askpage);
   }
-  if (POST == con_info->connectiontype)
+  if (0 == strcmp (method, "POST"))
   {
     if (0 != *upload_data_size)
     {

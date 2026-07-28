@@ -21,10 +21,16 @@ $(top_builddir)/src/microhttpd/libmicrohttpd.la: $(top_builddir)/src/microhttpd/
 
 # example programs
 noinst_PROGRAMS = \
+  callbackresponse \
   hellobrowser \
   logging \
   responseheaders
-  
+
+if ENABLE_UPGRADE
+noinst_PROGRAMS += \
+  upgrade
+endif
+
 if ENABLE_BAUTH
 noinst_PROGRAMS += \
   basicauthentication
@@ -42,19 +48,20 @@ if HAVE_W32
 AM_CPPFLAGS += -DWINDOWS
 endif
 
-if HAVE_EXPERIMENTAL
-noinst_PROGRAMS += websocket
-endif
-
 basicauthentication_SOURCES = \
  basicauthentication.c 
 basicauthentication_LDADD = \
  $(top_builddir)/src/microhttpd/libmicrohttpd.la 
 
+callbackresponse_SOURCES = \
+ callbackresponse.c
+callbackresponse_LDADD = \
+ $(top_builddir)/src/microhttpd/libmicrohttpd.la
+
 hellobrowser_SOURCES = \
- hellobrowser.c 
+ hellobrowser.c
 hellobrowser_LDADD = \
- $(top_builddir)/src/microhttpd/libmicrohttpd.la 
+ $(top_builddir)/src/microhttpd/libmicrohttpd.la
 
 logging_SOURCES = \
  logging.c 
@@ -86,8 +93,7 @@ largepost_SOURCES = \
 largepost_LDADD = \
  $(top_builddir)/src/microhttpd/libmicrohttpd.la 
 
-websocket_SOURCES = \
- websocket.c
-websocket_LDADD = \
- $(top_builddir)/src/microhttpd/libmicrohttpd.la \
- $(top_builddir)/src/microhttpd_ws/libmicrohttpd_ws.la
+upgrade_SOURCES = \
+ upgrade.c
+upgrade_LDADD = \
+ $(top_builddir)/src/microhttpd/libmicrohttpd.la

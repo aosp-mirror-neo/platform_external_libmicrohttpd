@@ -30,7 +30,7 @@ start there. It will, however, turn out to have still severe weaknesses in
 terms of security which need consideration.
 
 Before we will start implementing @emph{Basic Authentication} as described in
-@emph{RFC 2617}, we will also abandon the simplistic and generally
+@emph{RFC 7617}, we will also abandon the simplistic and generally
 problematic practice of responding every request the first time our callback
 is called for a given connection. Queuing a response upon the first request
 is akin to generating an error response (even if it is a "200 OK" reply!).
@@ -64,8 +64,9 @@ application should suspend the connection).
 @end enumerate
 
 But how can we tell whether the callback has been called before for the
-particular request?  Initially, the pointer this parameter references is
-set by @emph{MHD} in the callback. But it will also be "remembered" on the
+particular request?  This is what the @code{req_cls} parameter of the callback
+is for: initially, the pointer it references is set to NULL by @emph{MHD}.
+But whatever we store there will be "remembered" on the
 next call (for the same request).  Thus, we can use the @code{req_cls}
 location to keep track of the request state.  For now, we will simply
 generate no response until the parameter is non-null---implying the callback
@@ -77,7 +78,7 @@ will be pointing to a legal address, so we take this.
 The first time @code{answer_to_connection} is called, we will not even look at the headers.
 
 @verbatim
-static int
+static enum MHD_Result
 answer_to_connection (void *cls, struct MHD_Connection *connection,
                       const char *url, const char *method, const char *version,
                       const char *upload_data, size_t *upload_data_size,
@@ -104,11 +105,13 @@ correct username/password, so every "GET" request will be challenged.
 @emph{RFC 7617} describes how the server shall ask for authentication by
 adding a @emph{WWW-Authenticate} response header with the name of the
 @emph{realm} protected.  MHD can generate and queue such a failure response
-for you using the @code{MHD_queue_basic_auth_fail_response} API.  The only
+for you using the @code{MHD_queue_basic_auth_required_response3} API.  The only
 thing you need to do is construct a response with the error page to be shown
 to the user if he aborts basic authentication.  But first, you should check if
 the proper credentials were already supplied using the
-@code{MHD_basic_auth_get_username_password} call.
+@code{MHD_basic_auth_get_username_password3} call.  (The older
+@code{MHD_queue_basic_auth_fail_response} and
+@code{MHD_basic_auth_get_username_password} calls are deprecated.)
 
 Your code would then look like this:
 @verbatim
@@ -135,10 +138,10 @@ answer_to_connection (void *cls, struct MHD_Connection *connection,
     static const char *page =
       "<html><body>Authorization required</body></html>";
     response = MHD_create_response_from_buffer_static (strlen (page), page);
-    ret = MHD_queue_basic_auth_fail_response3 (connection,
-                                               "admins",
-                                               MHD_YES,
-                                               response);
+    ret = MHD_queue_basic_auth_required_response3 (connection,
+                                                   "admins",
+                                                   MHD_YES,
+                                                   response);
   }
   else if ((strlen ("root") != auth_info->username_len) ||
            (0 != memcmp (auth_info->username, "root",
@@ -153,10 +156,10 @@ answer_to_connection (void *cls, struct MHD_Connection *connection,
     static const char *page =
       "<html><body>Wrong username or password</body></html>";
     response = MHD_create_response_from_buffer_static (strlen (page), page);
-    ret = MHD_queue_basic_auth_fail_response3 (connection,
-                                               "admins",
-                                               MHD_YES,
-                                               response);
+    ret = MHD_queue_basic_auth_required_response3 (connection,
+                                                   "admins",
+                                                   MHD_YES,
+                                                   response);
   }
   else
   {

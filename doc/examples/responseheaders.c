@@ -63,7 +63,7 @@ answer_to_connection (void *cls, struct MHD_Connection *connection,
       return MHD_NO;
   }
   response =
-    MHD_create_response_from_fd_at_offset64 ((size_t) sbuf.st_size,
+    MHD_create_response_from_fd_at_offset64 ((uint64_t) sbuf.st_size,
                                              fd,
                                              0);
   if (MHD_YES !=

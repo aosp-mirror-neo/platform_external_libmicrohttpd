@@ -14,7 +14,9 @@ After the necessary includes and the definition of the port which our server sho
 #include <sys/types.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <string.h>
 #include <microhttpd.h>
+#include <stdio.h>
 
 #define PORT 8888
 
@@ -39,11 +41,12 @@ daemon to sent the reply.
 
 Talking about the reply, it is defined as a string right after the function header
 @verbatim
-int answer_to_connection (void *cls, struct MHD_Connection *connection,
-                          const char *url,
-                          const char *method, const char *version,
-                          const char *upload_data,
-                          size_t *upload_data_size, void **req_cls)
+static enum MHD_Result
+answer_to_connection (void *cls, struct MHD_Connection *connection,
+                      const char *url,
+                      const char *method, const char *version,
+                      const char *upload_data,
+                      size_t *upload_data_size, void **req_cls)
 {
   const char *page  = "<html><body>Hello, browser!</body></html>";
 
@@ -54,21 +57,22 @@ HTTP is a rather strict protocol and the client would certainly consider it "ina
 just sent the answer string "as is". Instead, it has to be wrapped with additional information stored in so-called headers and footers.  Most of the work in this area is done by the library for us---we
 just have to ask. Our reply string packed in the necessary layers will be called a "response".
 To obtain such a response we hand our data (the reply--string) and its size over to the
-@code{MHD_create_response_from_buffer} function. The last two parameters basically tell @emph{MHD}
-that we do not want it to dispose the message data for us when it has been sent and there also needs
-no internal copy to be done because the @emph{constant} string won't change anyway.
+@code{MHD_create_response_from_buffer_static} function.  By using the @code{_static}
+variant we tell @emph{MHD} that the buffer will stay valid and unchanged for at least
+as long as the response lives, so that @emph{MHD} neither has to free the message data
+for us when it has been sent nor has to make an internal copy of it---which is exactly
+the case for our @emph{constant} string.
 
 @verbatim
   struct MHD_Response *response;
-  int ret;
+  enum MHD_Result ret;
 
-  response = MHD_create_response_from_buffer (strlen (page),
-                                            (void*) page, MHD_RESPMEM_PERSISTENT);
+  response = MHD_create_response_from_buffer_static (strlen (page), page);
 
 @end verbatim
 
 @noindent
-Now that the the response has been laced up, it is ready for delivery and can be queued for sending.
+Now that the response has been laced up, it is ready for delivery and can be queued for sending.
 This is done by passing it to another @emph{GNU libmicrohttpd} function. As all our work was done in
 the scope of one function, the recipient is without doubt the one associated with the
 local variable @code{connection} and consequently this variable is given to the queue function.
@@ -91,27 +95,31 @@ already being set at this point to either MHD_YES or MHD_NO in case of success o
 With the primary task of our server implemented, we can start the actual server daemon which will listen
 on @code{PORT} for connections. This is done in the main function.
 @verbatim
-int main ()
+int main (void)
 {
   struct MHD_Daemon *daemon;
 
-  daemon = MHD_start_daemon (MHD_USE_INTERNAL_POLLING_THREAD, PORT, NULL, NULL,
+  daemon = MHD_start_daemon (MHD_USE_AUTO | MHD_USE_INTERNAL_POLLING_THREAD,
+                             PORT, NULL, NULL,
                              &answer_to_connection, NULL, MHD_OPTION_END);
   if (NULL == daemon) return 1;
 
 @end verbatim
 
 @noindent
-The first parameter is one of three possible modes of operation. Here we want the daemon to run in
+The first parameter is a bit-wise OR of flags selecting, among other things, the mode of
+operation. With @code{MHD_USE_INTERNAL_POLLING_THREAD} we want the daemon to run in
 a separate thread and to manage all incoming connections in the same thread. This means that while
 producing the response for one connection, the other connections will be put on hold. In this
 example, where the reply is already known and therefore the request is served quickly, this poses no problem.
+The additional @code{MHD_USE_AUTO} flag simply lets @emph{MHD} pick the best polling function
+(@code{epoll}, @code{poll} or @code{select}) available on the platform.
 
 We will allow all clients to connect regardless of their name or location, therefore we do not check
 them on connection and set the third and fourth parameter to NULL.
 
-Parameter five is the address of the function we want to be called whenever a new connection has been
-established. Our @code{answer_to_connection} knows best what the client wants and needs no additional
+Parameter five is the address of the function we want to be called whenever a new request has been
+received. Our @code{answer_to_connection} knows best what the client wants and needs no additional
 information (which could be passed via the next parameter) so the next (sixth) parameter is NULL. Likewise,
 we do not need to pass extra options to the daemon so we just write the MHD_OPTION_END as the last parameter.
 
@@ -168,16 +176,19 @@ Both of these issues you will find addressed in the official @code{minimal_examp
 the @code{src/examples} directory of the @emph{MHD} package.  The source code of this
 program should look very familiar to you by now and easy to understand.
 
-For our example, we create the response from a static (persistent) buffer in memory and thus pass @code{MHD_RESPMEM_PERSISTENT} to the response construction
-function. In the usual case, responses are not transmitted immediately
+For our example, we create the response from a static (persistent) buffer in memory and thus use
+@code{MHD_create_response_from_buffer_static}.
+In the usual case, responses are not transmitted immediately
 after being queued. For example, there might be other data on the system that needs to be sent with
 a higher priority. Nevertheless, the queue function will return successfully---raising the problem
 that the data we have pointed to may be invalid by the time it is about being sent. This is not an
 issue here because we can expect the @code{page} string, which is a constant @emph{string literal}
 here, to be static. That means it will be present and unchanged for as long as the program runs.
 For dynamic data, one could choose to either have @emph{MHD} free the memory @code{page} points
-to itself when it is not longer needed (by passing @code{MHD_RESPMEM_MUST_FREE}) or, alternatively, have the library to make and manage
-its own copy of it (by passing @code{MHD_RESPMEM_MUST_COPY}).  Naturally, this last option is the most expensive.
+to itself when it is no longer needed (by using
+@code{MHD_create_response_from_buffer_with_free_callback} with @code{&free}) or, alternatively,
+have the library make and manage its own copy of it (by using
+@code{MHD_create_response_from_buffer_copy}).  Naturally, this last option is the most expensive.
 
 @heading Exercises
 @itemize @bullet
@@ -200,9 +211,11 @@ and an altered response is sent? Make sure you read about the status codes in th
 
 
 @item
-Add the option @code{MHD_USE_PEDANTIC_CHECKS} to the start function of the daemon in @code{main}.
-Mind the special format of the parameter list here which is described in the manual. How indulgent
-is the server now to your input?
+Add the option @code{MHD_OPTION_CLIENT_DISCIPLINE_LVL} with a value of @code{1} to the start
+function of the daemon in @code{main} (this option supersedes the deprecated
+@code{MHD_USE_PEDANTIC_CHECKS} flag). Mind the special format of the parameter list here which is
+described in the manual: the option is followed by its @code{int} value, and @code{MHD_OPTION_END}
+still terminates the list. How indulgent is the server now to your input?
 
 
 @item
