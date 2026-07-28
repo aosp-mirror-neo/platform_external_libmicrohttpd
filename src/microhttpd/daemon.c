@@ -648,6 +648,45 @@ MHD_TLS_init (struct MHD_Daemon *daemon)
 }
 
 
+/**
+ * Release the TLS resources that #MHD_start_daemon_va() may already have
+ * allocated when it decides to fail.
+ *
+ * The daemon object is not usable at that point, so #MHD_stop_daemon()
+ * (which is what frees these on the success path) cannot be called; each
+ * failure exit therefore has to do it, and every one of them used to
+ * forget the Diffie-Hellman parameters.  Those are created by MHD itself
+ * from the PEM blob of #MHD_OPTION_HTTPS_MEM_DHPARAMS, so the
+ * application has no handle to free either.
+ *
+ * @param[in,out] daemon the half-initialised daemon
+ */
+static void
+tls_cleanup_failed_start (struct MHD_Daemon *daemon)
+{
+  if (daemon->have_dhparams)
+  {
+    gnutls_dh_params_deinit (daemon->https_mem_dhparams);
+    daemon->have_dhparams = false;
+  }
+  if (NULL != daemon->priority_cache)
+  {
+    gnutls_priority_deinit (daemon->priority_cache);
+    daemon->priority_cache = NULL;
+  }
+  if (NULL != daemon->x509_cred)
+  {
+    gnutls_certificate_free_credentials (daemon->x509_cred);
+    daemon->x509_cred = NULL;
+  }
+  if (NULL != daemon->psk_cred)
+  {
+    gnutls_psk_free_server_credentials (daemon->psk_cred);
+    daemon->psk_cred = NULL;
+  }
+}
+
+
 #endif /* HTTPS_SUPPORT */
 
 
@@ -7878,9 +7917,7 @@ MHD_start_daemon_va (unsigned int flags,
                                   ap))
   {
 #ifdef HTTPS_SUPPORT
-    if ( (0 != (*pflags & MHD_USE_TLS)) &&
-         (NULL != daemon->priority_cache) )
-      gnutls_priority_deinit (daemon->priority_cache);
+    tls_cleanup_failed_start (daemon);
 #endif /* HTTPS_SUPPORT */
     free (interim_params);
     free (daemon);
@@ -7891,6 +7928,9 @@ MHD_start_daemon_va (unsigned int flags,
                                 &addrlen,
                                 interim_params))
   {
+#ifdef HTTPS_SUPPORT
+    tls_cleanup_failed_start (daemon);
+#endif /* HTTPS_SUPPORT */
     free (interim_params);
     free (daemon);
     return NULL;
@@ -7906,6 +7946,7 @@ MHD_start_daemon_va (unsigned int flags,
     MHD_DLOG (daemon,
               _ ("Failed to initialise GnuTLS priorities.\n"));
 #endif /* HAVE_MESSAGES */
+    tls_cleanup_failed_start (daemon);
     free (daemon);
     return NULL;
   }
@@ -9009,14 +9050,7 @@ free_and_fail:
 #endif
 #endif
 #ifdef HTTPS_SUPPORT
-  if (0 != (*pflags & MHD_USE_TLS))
-  {
-    gnutls_priority_deinit (daemon->priority_cache);
-    if (daemon->x509_cred)
-      gnutls_certificate_free_credentials (daemon->x509_cred);
-    if (daemon->psk_cred)
-      gnutls_psk_free_server_credentials (daemon->psk_cred);
-  }
+  tls_cleanup_failed_start (daemon);
 #endif /* HTTPS_SUPPORT */
   if (MHD_ITC_IS_VALID_ (daemon->itc))
     MHD_itc_destroy_chk_ (daemon->itc);

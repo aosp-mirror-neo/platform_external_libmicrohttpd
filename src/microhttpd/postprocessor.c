@@ -1108,21 +1108,35 @@ post_process_multipart (struct MHD_PostProcessor *pp,
                                        "multipart/mixed",
                                        MHD_STATICSTR_LEN_ ("multipart/mixed"))))
       {
-        pp->nested_boundary = strstr (pp->content_type,
-                                      "boundary=");
-        if (NULL == pp->nested_boundary)
+        const char *bnd;
+        char *nested;
+
+        bnd = strstr (pp->content_type,
+                      "boundary=");
+        if (NULL == bnd)
         {
           pp->state = PP_Error;
           return MHD_NO;
         }
-        pp->nested_boundary =
-          strdup (&pp->nested_boundary[MHD_STATICSTR_LEN_ ("boundary=")]);
-        if (NULL == pp->nested_boundary)
+        /* Note: 'bnd' points into 'pp->content_type', which is released
+           below, so the copy must be taken first.  It must also be
+           taken into a local: assigning the 'strstr()' result to
+           'pp->nested_boundary' first would overwrite -- and leak -- a
+           boundary already owned by this post processor.  That happens
+           whenever this state is reached twice without passing through
+           PP_PerformCleanup, i.e. for every additional nested
+           "multipart/mixed" part, and the leaked block is as long as
+           the boundary the client chose. */
+        nested = strdup (&bnd[MHD_STATICSTR_LEN_ ("boundary=")]);
+        if (NULL == nested)
         {
           /* out of memory */
           pp->state = PP_Error;
           return MHD_NO;
         }
+        if (NULL != pp->nested_boundary)
+          free (pp->nested_boundary);
+        pp->nested_boundary = nested;
         /* free old content type, we will need that field
            for the content type of the nested elements */
         free (pp->content_type);

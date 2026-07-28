@@ -548,6 +548,17 @@ MHD_pool_reallocate (struct MemoryPool *pool,
   mhd_assert (NULL == __asan_region_is_poisoned (old, old_size));
 #endif /* MHD_ASAN_POISON_ACTIVE && HAVE___ASAN_REGION_IS_POISONED */
 
+  /* No block can ever be larger than the pool, so reject that here once
+     rather than in each of the paths below.  This is what stops a
+     wrapping @a new_size: both remaining size tests are made on values
+     that ROUND_TO_ALIGN_PLUS_RED_ZONE() has already wrapped back to
+     something small and plausible, so neither of them fires and the
+     caller is handed a block it believes is nearly SIZE_MAX bytes long.
+     The documented contract is to return NULL when the pool cannot
+     support @a new_size bytes. */
+  if (new_size > pool->size)
+    return NULL;
+
   if (NULL != old)
   {   /* Have previously allocated data */
     const size_t old_offset = mp_ptr_diff_ (old, pool->memory);
@@ -589,6 +600,15 @@ MHD_pool_reallocate (struct MemoryPool *pool,
         ROUND_TO_ALIGN_PLUS_RED_ZONE (old_offset + new_size);
       if (! shrinking)
       {                               /* Grow in-place, check for enough space. */
+        /* Reject a wrapping @a new_size before looking at 'new_apos'.
+           'old_offset + new_size' can wrap all the way round and land
+           back inside [pool->pos, pool->end], and the two tests below
+           then both pass: the caller is handed a block it believes is
+           nearly SIZE_MAX bytes long.  The "allocate a new block" path
+           further down already has an explicit wrap test; this is the
+           same check for the in-place path. */
+        if (new_size > pool->size - old_offset)
+          return NULL;                /* Value wrap, or beyond the pool */
         if ( (new_apos > pool->end) ||
              (new_apos < pool->pos) ) /* Value wrap */
           return NULL;                /* No space */
@@ -652,7 +672,12 @@ MHD_pool_deallocate (struct MemoryPool *pool,
     const size_t block_offset = mp_ptr_diff_ (block, pool->memory);
     mhd_assert (mp_ptr_le_ (pool->memory, block));
     mhd_assert (block_offset <= pool->size);
-    mhd_assert ((block_offset != pool->pos) || (block_size == 0));
+    /* A block allocated "from the end" starts at or after pool->end, a
+       "normal" block starts before it.  Those two ranges meet when the
+       pool is exactly full (pool->pos == pool->end), so an end block may
+       legitimately start at pool->pos; only a normal block may not. */
+    mhd_assert ((block_offset >= pool->end) || \
+                (block_offset != pool->pos) || (block_size == 0));
     /* Zero-out deallocated region */
     if (0 != block_size)
     {
@@ -663,9 +688,13 @@ MHD_pool_deallocate (struct MemoryPool *pool,
     else
       return; /* Zero size, no need to do anything */
 #endif /* ! MHD_FAVOR_SMALL_CODE && ! MHD_ASAN_POISON_ACTIVE */
-    if (block_offset <= pool->pos)
+    if (block_offset < pool->end)
     {
-      /* "Normal" block, not allocated "from the end". */
+      /* "Normal" block, not allocated "from the end".
+         The test is against pool->end, not pool->pos: when the pool is
+         exactly full the two are equal, and a block allocated "from the
+         end" then also satisfies 'block_offset <= pool->pos', so it
+         would be mistaken for a normal block and never returned. */
       const size_t alg_end =
         ROUND_TO_ALIGN_PLUS_RED_ZONE (block_offset + block_size);
       mhd_assert (alg_end <= pool->pos);
