@@ -2641,6 +2641,10 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
   if (((unsigned int) c_qop) !=
       (((unsigned int) c_qop) & ((unsigned int) mqop)))
     return MHD_DAUTH_WRONG_QOP;
+  /* The numeric value of #MHD_DIGEST_AUTH_QOP_INVALID is zero, therefore
+     the bitmask check above passes it for any 'mqop' value. */
+  if (MHD_DIGEST_AUTH_QOP_INVALID == c_qop)
+    return MHD_DAUTH_WRONG_QOP;
   if (0 != (((unsigned int) c_qop) & MHD_DIGEST_AUTH_QOP_AUTH_INT))
   {
 #ifdef HAVE_MESSAGES
