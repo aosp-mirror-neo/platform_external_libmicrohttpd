@@ -651,18 +651,68 @@ K9  postprocessor.c:1119  post_process_multipart():
     path no longer overwrites the old pointer either.
     Repro: corpus/known-findings/K9-fuzz_postprocessor-nested-boundary-leak.bin
 
+K10 memorypool.c  MHD_pool_deallocate():  end block of an exactly-full
+    pool was never returned; the front/end dispatch tested pool->pos,
+    where the two ranges meet.  Fixed.
+
+K11 memorypool.c  MHD_pool_reallocate():  returned non-NULL for a
+    wrapping @a new_size, handing the caller a block it believed was
+    nearly SIZE_MAX bytes long.  Fixed.
+
+K12 daemon.c  MHD_start_daemon_va():  leaked the GnuTLS DH parameters
+    built from MHD_OPTION_HTTPS_MEM_DHPARAMS on every startup-failure
+    exit.  The application cannot free them.  Fixed.
+
+K13 daemon.c  MHD_epoll() / MHD_quiesce_daemon():  both threads remove
+    the listening socket from the epoll set, and the loser aborts on
+    ENOENT.  Open; two alternative fixes are proposed as
+    ../../patches/K13.diff (tolerate ENOENT everywhere) and
+    ../../patches/K13b.diff (take a lock, keep the strict check).
+
+K14 daemon.c:1358  call_handlers():
+        mhd_assert (! force_close || MHD_CONNECTION_CLOSED == con->state)
+    Open, fix proposed in ../../patches/K14.diff.
+
+    MHD_connection_handle_read() closes the connection when its
+    @a socket_error argument is set -- but only once it gets far enough
+    to try.  It returns early, leaving the state untouched, when the
+    connection is suspended, when a TLS handshake is in progress, and
+    when the read buffer has no free space at all.  The caller asserts
+    the post-condition unconditionally.
+
+    Instrumenting the assertion site with the reproducer gives
+
+        state=12 (HEADERS_PROCESSED)  suspended=0
+        rb_size=2021  rb_off=2021  evinfo=READ
+
+    i.e. the read buffer is exactly full.  A client that fills the
+    connection memory pool without the application consuming the body
+    gets there; no unusual API use is involved.  Observed through
+    MHD_run_from_select2(), i.e. from the external event loop.
+
+    The reproducer does NOT fire on a plain in-tree gcc build: ASan's
+    pool redzones change the buffer arithmetic enough to matter, so
+    confirm it against the OSS-Fuzz build configuration.
+    Repro: corpus/known-findings/K14-fuzz_eventloop-force-close-not-closed.bin
+
 Status
 ------
 
-All nine findings are fixed on master:
+K1-K12 are fixed on master:
 
-    K1  300a2ab0     K4a 0b750975     K7  acef58a0
-    K2  68c83f22     K4b 0b750975     K8  07c051dd
-    K3  e04eb218     K5  6fcdfd43     K9  (this tree)
+    K1  300a2ab0     K4a 0b750975     K7  acef58a0     K10 (memorypool)
+    K2  68c83f22     K4b 0b750975     K8  07c051dd     K11 (memorypool)
+    K3  e04eb218     K5  6fcdfd43     K9  (postproc)   K12 (daemon/TLS)
                      K6  f438804c
 
-The nine reproducers in `corpus/known-findings/` therefore all replay
-clean on a build configured with `--enable-asserts`, and
+K13 and K14 are open, with proposed fixes in ../../patches/.  Until K14
+lands, `make check-corpus` fails on an `--enable-asserts` build, because
+its reproducer is committed and still reproduces -- which is the
+documented behaviour for an open finding, but worth knowing before a CI
+run.
+
+The reproducers in `corpus/known-findings/` otherwise all replay clean
+on a build configured with `--enable-asserts`, and
 `make check-corpus` asserts exactly that -- it replays that directory
 along with the generated corpus.  K8 has no reproducer, because its
 trigger is an argument the application chooses rather than anything that

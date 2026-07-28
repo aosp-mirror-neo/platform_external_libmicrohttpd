@@ -114,6 +114,33 @@ harness ignores the extra bytes, so libFuzzer does not waste its budget:
     fuzz_postprocessor  8196   4 selector bytes + the POST body, truncated
                                to 8192.
 
+### rss_limit_mb, and why a long run creeps
+
+libFuzzer's default `-rss_limit_mb=2048` counts the whole process, and an
+ASan-instrumented target grows slowly over hundreds of millions of
+executions even with no leak at all: ASan's allocator keeps a quarantine
+of freed chunks and does not return memory to the OS eagerly.  A local
+two-hour campaign hit exactly this -- `fuzz_options` crept from 686 MB to
+1804 MB over 26M executions and was killed as an OOM, while
+LeakSanitizer stayed silent across 3M-execution runs and
+`MALLOC_ARENA_MAX` changed nothing (it is glibc's knob, and none of these
+allocations go through glibc).
+
+Three arms of the same target over the same corpus, 4M executions each,
+settle it:
+
+    ASan, default quarantine                  608 MB
+    ASan, ASAN_OPTIONS=quarantine_size_mb=1   266 MB
+    no sanitizer at all (glibc allocator)      36 MB
+
+17x between the first and the last, with no code difference: the growth
+is the sanitizer's allocator holding freed memory, not the harness and
+not MHD.
+
+So treat a slow, monotonic RSS climb as allocator retention rather than a
+finding.  ClusterFuzz restarts its fuzzers periodically, which bounds it;
+do the same locally rather than raising the limit forever.
+
 ### close_fd_mask
 
 Deliberately **not** set.  The harnesses are quiet by default (MHD's
