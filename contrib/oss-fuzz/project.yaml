@@ -31,19 +31,33 @@ sanitizers:
   - undefined
   - memory
 
-# Only x86_64 is claimed here because it is the only architecture this
-# configuration has been exercised on.  i386 is interesting for MHD (the
-# severity of the MAX_DIGEST overflow depends on the word size, see
-# TESTING.md section P3) and can be added later, but OSS-Fuzz supports i386
-# only for the address sanitizer with libFuzzer, and the build has to be
-# verified first.
+# i386 matters for MHD because the severity of several of the length bugs
+# this suite found depends on the word size (see TESTING.md section P3):
+# a size_t underflow that is merely a huge number on x86_64 can be a
+# wrap-around on a 32 bit target.
+#
+# Verified locally: the whole library and all harnesses build with -m32,
+# and the entire committed corpus, including every corpus/known-findings/
+# reproducer, replays clean on the 32 bit targets.  Note that OSS-Fuzz
+# runs i386 only with the address sanitizer under libFuzzer.
+#
+# One i386 quirk is handled in build.sh rather than here: a -m32 PIE
+# linked against any sanitizer runtime dies with SEGV at address 0 before
+# main() on current Linux/clang, so the local default adds -no-pie.
 architectures:
   - x86_64
+  - i386
 
 # The harnesses are plain LLVMFuzzerTestOneInput() targets with no engine
-# specific code, so every in-process engine works.  ("centipede" is
-# deliberately not listed: it is supported by OSS-Fuzz but has not been
-# tried against these targets.)
+# specific code, so every in-process engine works.  All three listed here
+# have been built and driven against the targets locally -- see section 4
+# of the README for the exact recipe -- rather than merely assumed to
+# work; an engine that is claimed but broken shows up as a dead target on
+# the OSS-Fuzz dashboard, not as an error anyone notices.
+#
+# "centipede" is deliberately not listed: it is supported by OSS-Fuzz but
+# has not been tried against these targets.  Do not add it without
+# building and running it first.
 fuzzing_engines:
   - libfuzzer
   - afl

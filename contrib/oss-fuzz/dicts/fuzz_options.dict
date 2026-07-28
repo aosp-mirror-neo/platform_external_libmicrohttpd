@@ -1,0 +1,53 @@
+# libFuzzer dictionary for fuzz_options (GNU libmicrohttpd).
+#
+# The first 16 bytes of the input configure the daemon -- the MHD_FLAG
+# combination, the MHD_OPTION values and which callbacks are installed --
+# and the rest is fuzz_request's segment stream, "(op << 14) | length"
+# followed by that many bytes of wire data.
+#
+# So the useful tokens are of two kinds: request fragments for the segment
+# stream, and the two-byte segment headers that frame them.  The daemon
+# configuration itself is a dense bit field and needs no dictionary: every
+# byte value means something, which is exactly the case a mutator handles
+# well on its own.
+
+# --- segment headers: (op << 14) | length, little endian ---------------
+# op 0 "send", short payloads
+seg_send_16="\x10\x00"
+seg_send_32="\x20\x00"
+seg_send_64="\x40\x00"
+# op 2 "send and pump extra rounds"
+seg_pump_0="\x00\x80"
+seg_pump_16="\x10\x80"
+# op 3 "close, reopen, send"
+seg_newconn_16="\x10\xc0"
+seg_newconn_32="\x20\xc0"
+
+# --- request lines -----------------------------------------------------
+get="GET / HTTP/1.1\x0d\x0a"
+post="POST / HTTP/1.1\x0d\x0a"
+head="HEAD / HTTP/1.1\x0d\x0a"
+options_star="OPTIONS * HTTP/1.1\x0d\x0a"
+http10="GET / HTTP/1.0\x0d\x0a"
+
+# --- headers that interact with daemon options -------------------------
+host="Host: x\x0d\x0a"
+conn_close="Connection: close\x0d\x0a"
+conn_keepalive="Connection: keep-alive\x0d\x0a"
+conn_upgrade="Connection: Upgrade\x0d\x0a"
+upgrade="Upgrade: fuzz-protocol\x0d\x0a"
+cl0="Content-Length: 0\x0d\x0a"
+cl_big="Content-Length: 1048576\x0d\x0a"
+te_chunked="Transfer-Encoding: chunked\x0d\x0a"
+expect100="Expect: 100-continue\x0d\x0a"
+ctype_form="Content-Type: application/x-www-form-urlencoded\x0d\x0a"
+ctype_multipart="Content-Type: multipart/form-data; boundary=b\x0d\x0a"
+cookie="Cookie: a=b\x0d\x0a"
+auth_basic="Authorization: Basic dXNlcjpwYXNz\x0d\x0a"
+auth_digest="Authorization: Digest username=\"user\"\x0d\x0a"
+crlf="\x0d\x0a"
+
+# --- bodies ------------------------------------------------------------
+chunk_end="0\x0d\x0a\x0d\x0a"
+chunk_4="4\x0d\x0aabcd\x0d\x0a"
+form="a=1&b=2"

@@ -9,3 +9,7 @@
 
 # Seed corpora packaged for OSS-Fuzz by contrib/oss-fuzz/make_seed_corpus.sh.
 /*_seed_corpus.zip
+fuzz_eventloop
+fuzz_memorypool
+fuzz_options
+fuzz_tls

@@ -1,0 +1,63 @@
+# libFuzzer dictionary for fuzz_memorypool (GNU libmicrohttpd).
+#
+# The input is byte 0 = pool size selector, byte 1 = flags, then a
+# stream of 3-byte operation records (opcode, block selector, size
+# selector); see src/fuzz/README section 2.6 and the header comment of
+# src/fuzz/fuzz_memorypool.c.  A dictionary of *whole records* is what
+# helps here: it lets the mutator splice in a well-formed operation
+# instead of having to discover the opcode numbering byte by byte.
+#
+# Size selector encoding (low two bits select the class):
+#   b & 3 == 0   tiny, b >> 2 bytes (0..63)
+#   b & 3 == 1   ((b >> 2) + 1) / 64 of the pool
+#   b & 3 == 2   the currently free amount, +- ((b >> 2) & 7)
+#                (bit 5 selects the sign)
+#   b & 3 == 3   SIZE_MAX - (b >> 2), i.e. the value-wrap guards
+
+# --- headers: pool size selector + flags --------------------------------
+hdr_tiny_pool="\x00\x01"
+hdr_pool_128="\x08\x01"
+hdr_pool_256="\x0b\x01"
+hdr_pool_1024="\x10\x01"
+hdr_pool_1500="\x12\x01"
+hdr_pool_32768="\x17\x01"
+hdr_pool_mmap="\x19\x00"
+hdr_prefer_end="\x08\x03"
+
+# --- allocation ----------------------------------------------------------
+alloc_tiny="\x00\x00\x40"
+alloc_zero="\x00\x00\x00"
+alloc_from_end="\x00\x01\x40"
+alloc_half="\x00\x00\x7d"
+alloc_free="\x00\x00\x02"
+alloc_free_plus="\x00\x00\x26"
+alloc_free_minus="\x00\x00\x06"
+alloc_wrap="\x00\x00\x03"
+alloc_all_free="\x01\x00\x00"
+alloc_all_free_end="\x01\x01\x00"
+
+# --- try_alloc / the connection.c squeeze --------------------------------
+try_alloc_tiny="\x02\x00\x30"
+try_alloc_free="\x02\x00\x02"
+try_alloc_wrap="\x02\x00\x03"
+squeeze_tiny="\x03\x00\x30"
+squeeze_frac="\x03\x00\x21"
+
+# --- reallocation --------------------------------------------------------
+realloc_grow="\x04\x00\xfc"
+realloc_shrink="\x04\x00\x04"
+realloc_to_free="\x04\x00\x02"
+realloc_wrap="\x04\x00\x03"
+realloc_fresh="\x05\x00\x7d"
+
+# --- deallocation, reset, queries ---------------------------------------
+dealloc="\x06\x00\x00"
+dealloc_other="\x06\x01\x00"
+reset_keep_all="\x07\xf0\x7d"
+reset_keep_none="\x07\x00\x00"
+reset_to_free="\x07\xf0\x02"
+get_free="\x08\x00\x00"
+resizable="\x09\x00\x00"
+verify="\x0a\x00\x00"
+recreate_small="\x0b\x08\x00"
+recreate_large="\x0b\x17\x00"

@@ -620,22 +620,60 @@ K8  digestauth.c  MHD_digest_auth_check_digest2():
     the variant-4 call to MHD_DIGEST_ALG_AUTO and replay
     corpus/fuzz_request-37.bin.
 
+K9  postprocessor.c:1119  post_process_multipart():
+        LeakSanitizer: direct leak, strdup() from MHD_post_process()
+    Found by fuzz_postprocessor, not fuzz_request -- the first finding
+    that did not come from the daemon harness.  Remotely triggerable,
+    default configuration, no assertions needed.
+
+    On entering PP_PerformCheckMultipart the code did
+
+        pp->nested_boundary = strstr (pp->content_type, "boundary=");
+        ...
+        pp->nested_boundary = strdup (&pp->nested_boundary[9]);
+
+    The first assignment stores an *interior pointer into
+    pp->content_type* over whatever pp->nested_boundary held.  If the
+    post processor already owned a boundary -- which it does for every
+    nested "multipart/mixed" part after the first, unless the state
+    machine happened to pass through PP_PerformCleanup in between -- that
+    allocation is lost.  MHD_destroy_post_processor() frees only the last
+    one.
+
+    So a body with N nested multipart/mixed parts, each carrying its own
+    "boundary=", leaks N-1 blocks, and the client picks how long each one
+    is.  That makes it a memory-exhaustion vector against any application
+    that calls MHD_post_process() on multipart input, not the one byte
+    the reproducer happens to leak (its boundary is the empty string).
+
+    Fixed by copying into a local first and releasing any previously
+    owned boundary before taking ownership of the new one; the error
+    path no longer overwrites the old pointer either.
+    Repro: corpus/known-findings/K9-fuzz_postprocessor-nested-boundary-leak.bin
+
 Status
 ------
 
-All eight findings are fixed on master:
+All nine findings are fixed on master:
 
     K1  300a2ab0     K4a 0b750975     K7  acef58a0
     K2  68c83f22     K4b 0b750975     K8  07c051dd
-    K3  e04eb218     K5  6fcdfd43
+    K3  e04eb218     K5  6fcdfd43     K9  (this tree)
                      K6  f438804c
 
-The eight reproducers in `corpus/known-findings/` therefore all replay
+The nine reproducers in `corpus/known-findings/` therefore all replay
 clean on a build configured with `--enable-asserts`, and
 `make check-corpus` asserts exactly that -- it replays that directory
 along with the generated corpus.  K8 has no reproducer, because its
 trigger is an argument the application chooses rather than anything that
 comes off the wire.
+
+A reproducer belongs to the harness that found it, and says so in its
+name: `K<n>-<harness>-<what>.bin`.  The ones without a harness in the
+name predate the convention and are all fuzz_request inputs.
+`contrib/oss-fuzz/make_seed_corpus.sh` routes each one into the right
+target's seed corpus on that basis -- a fuzz_postprocessor reproducer in
+fuzz_request's corpus would just be an uninteresting input.
 
 When the next finding is opened, its reproducer goes into
 `corpus/known-findings/` and will make `make check-corpus` fail until the

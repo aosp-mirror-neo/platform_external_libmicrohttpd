@@ -254,12 +254,61 @@ last argument, which is how you test uncommitted changes:
     python3 infra/helper.py build_fuzzers --sanitizer address \
         libmicrohttpd /path/to/libmicrohttpd
 
-Repeat for the other sanitizers and engines before submitting:
+Repeat for the other sanitizers, engines and architectures before
+submitting:
 
-    python3 infra/helper.py build_fuzzers --sanitizer undefined libmicrohttpd
-    python3 infra/helper.py build_fuzzers --sanitizer memory    libmicrohttpd
-    python3 infra/helper.py build_fuzzers --engine afl          libmicrohttpd
-    python3 infra/helper.py build_fuzzers --engine honggfuzz    libmicrohttpd
+    python3 infra/helper.py build_fuzzers --sanitizer undefined    libmicrohttpd
+    python3 infra/helper.py build_fuzzers --sanitizer memory       libmicrohttpd
+    python3 infra/helper.py build_fuzzers --engine afl             libmicrohttpd
+    python3 infra/helper.py build_fuzzers --engine honggfuzz       libmicrohttpd
+    python3 infra/helper.py build_fuzzers --architecture i386      libmicrohttpd
+
+
+### 4.1 Without Docker
+
+`build.sh` also runs directly, and it reads the same four variables
+OSS-Fuzz sets, so the whole matrix is reachable on a developer machine:
+
+    SANITIZER        address | undefined | memory | coverage | none
+    FUZZING_ENGINE   libfuzzer | afl | honggfuzz | none
+    ARCHITECTURE     x86_64 | i386
+
+Every combination has been built and driven locally.  The recipes:
+
+    # libFuzzer, x86_64, ASan+UBSan  (the default)
+    MHD_SRC=/path/to/src WORK=/tmp/w OUT=/tmp/o ./contrib/oss-fuzz/build.sh
+
+    # i386.  Needs gcc-multilib and a 32 bit libstdc++; build.sh adds
+    # -m32 -no-pie itself.
+    ARCHITECTURE=i386 MHD_SRC=... WORK=... OUT=... ./build.sh
+
+    # AFL++  (Debian: apt install afl++)
+    FUZZING_ENGINE=afl MHD_SRC=... WORK=... OUT=... ./build.sh
+    afl-fuzz -i seeds -o findings -- $OUT/fuzz_request
+
+    # honggfuzz.  Not packaged by Debian; build it and put its compiler
+    # wrappers on $PATH:
+    #   git clone https://github.com/google/honggfuzz /tmp/honggfuzz
+    #   make -C /tmp/honggfuzz
+    PATH=/tmp/honggfuzz/hfuzz_cc:$PATH FUZZING_ENGINE=honggfuzz \
+      MHD_SRC=... WORK=... OUT=... ./build.sh
+    /tmp/honggfuzz/honggfuzz -i seeds -o findings -- $OUT/fuzz_request
+
+    # no engine at all: keeps the harnesses' own deterministic driver, so
+    # this is a sanitizer smoke test that needs nothing installed.
+    FUZZING_ENGINE=none MHD_SRC=... WORK=... OUT=... ./build.sh
+    $OUT/fuzz_request --iterations=100000 --seed=1
+
+Local toolchain quirk, not a property of the build: Debian's clang picks
+a gcc installation that may have no matching libstdc++, and the link then
+fails with `cannot find -lstdc++`.  Pin it, choosing a gcc that has the
+word size you are building for:
+
+    CXX="clang++ --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/15"   # 64 bit
+    CXX="clang++ --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14"   # 32 bit
+
+Not set inside build.sh on purpose: in the OSS-Fuzz image clang uses its
+own libc++ and any such pin would be wrong.
 
 Run one:
 
@@ -414,13 +463,15 @@ generated from each other.
     *not* pure framing/desync defects of the `c13f4c64` kind.  Those stay
     the job of the in-tree driver (`make -C src/fuzz check`), which is
     another reason to keep running it in CI.
- *  **i386 is not claimed.**  MHD's digest buffer sizes depend on the
-    word size (`TESTING.md` section P3), so a 32-bit build is genuinely
-    interesting, but OSS-Fuzz supports i386 only for ASan + libFuzzer and
-    that configuration has not been verified here.  Add
-    `- i386` to `architectures:` once it has been.
- *  **centipede is not claimed** for the same reason: it is a supported
-    OSS-Fuzz engine but these targets have not been tried with it.
+ *  **i386 runs ASan + libFuzzer only.**  That is an OSS-Fuzz
+    restriction, not one of this build: locally the 32 bit targets build
+    and run under every engine.  Worth knowing because the word size is
+    exactly what makes some of these bugs interesting (`TESTING.md`
+    section P3).
+ *  **centipede is not claimed.**  It is a supported OSS-Fuzz engine but
+    these targets have not been tried with it; unlike afl and honggfuzz,
+    nobody has built it here.  Do not add it to `project.yaml` on the
+    assumption that a plain `LLVMFuzzerTestOneInput()` target must work.
  *  **Nondeterminism.**  See the note about digest nonce timestamps in
     section 5.
  *  The `[libfuzzer]` section of the `.options` files is the only one

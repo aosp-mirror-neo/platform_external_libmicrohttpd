@@ -17,11 +17,14 @@
 #                             interchangeable between harnesses: byte 0 of
 #                             every harness input selects a different thing.
 #   known-findings/K*.bin     byte-exact reproducers for the findings in
-#                             src/fuzz/README section 6.  All of them are
-#                             fuzz_request inputs, so they go into that
-#                             harness' seed corpus, where OSS-Fuzz will keep
-#                             re-running them forever - i.e. they become
-#                             permanent regression tests.  Reproducers of
+#                             src/fuzz/README section 6.  Each goes into the
+#                             seed corpus of the harness that found it, where
+#                             OSS-Fuzz keeps re-running it forever - i.e. it
+#                             becomes a permanent regression test.  The owning
+#                             harness is named in the file, "K<n>-<harness>-
+#                             <what>.bin"; a name without one means
+#                             fuzz_request, which is what the reproducers
+#                             predating the convention are.  Reproducers of
 #                             findings that are still open are skipped; see
 #                             the loop below.
 #   README                    documentation, not an input; excluded.
@@ -39,7 +42,7 @@ CORPUS="${SRCDIR}/src/fuzz/corpus"
 FINDINGS="${CORPUS}/known-findings"
 PATCHES="${SRCDIR}/patches"
 
-FUZZERS="fuzz_request fuzz_str fuzz_auth_header fuzz_postprocessor"
+FUZZERS="fuzz_request fuzz_options fuzz_eventloop fuzz_str fuzz_memorypool fuzz_auth_header fuzz_postprocessor"
 
 if [ ! -d "${CORPUS}" ]; then
   echo "ERROR: no corpus directory at ${CORPUS}" >&2
@@ -62,8 +65,6 @@ for fuzzer in ${FUZZERS}; do
     n=$((n + 1))
   done
 
-  # The K* reproducers are fuzz_request inputs.
-  #
   # Only the ones whose defect is already fixed are shipped.  While a
   # finding is open its proposed fix is kept as an unapplied diff in
   # patches/$ID.diff, and its reproducer crashes the target by
@@ -75,9 +76,17 @@ for fuzzer in ${FUZZERS}; do
   #
   # patches/ therefore does not exist while nothing is open, which is the
   # normal state; the test below simply never fires then.
-  if [ "${fuzzer}" = "fuzz_request" ] && [ -d "${FINDINGS}" ]; then
+  #
+  # A reproducer belongs to the harness named in its file name,
+  # "K<n>-<harness>-<what>.bin"; the older ones predate that convention
+  # and are all fuzz_request inputs, so a name without a harness means
+  # fuzz_request.
+  if [ -d "${FINDINGS}" ]; then
     for f in "${FINDINGS}"/*.bin; do
       [ -f "${f}" ] || continue
+      owner="$(basename "${f}" | sed -n 's/^K[0-9]*-\(fuzz_[a-z_]*\)-.*/\1/p')"
+      [ -n "${owner}" ] || owner="fuzz_request"
+      [ "${owner}" = "${fuzzer}" ] || continue
       id="$(basename "${f}" | sed -n 's/^\(K[0-9]*\).*/\1/p')"
       if [ -n "${id}" ] && [ -f "${PATCHES}/${id}.diff" ]; then
         echo "  skipping ${fuzzer} seed $(basename "${f}"): ${id} is open" \

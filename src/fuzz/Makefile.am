@@ -69,12 +69,24 @@ $(top_builddir)/src/microhttpd/libmicrohttpd.la: $(top_builddir)/src/microhttpd/
 
 check_PROGRAMS = \
   fuzz_request \
+  fuzz_options \
+  fuzz_eventloop \
   fuzz_str \
+  fuzz_memorypool \
   fuzz_postprocessor
 
 if HAVE_ANYAUTH
 check_PROGRAMS += \
   fuzz_auth_header
+endif
+
+# fuzz_tls needs a TLS backend, and it links GnuTLS directly of its own
+# accord: it drives a real client through the handshake rather than
+# feeding bytes at MHD, which is what makes MHD's own TLS plumbing --
+# rather than GnuTLS's record parser -- the thing under test.
+if ENABLE_HTTPS
+check_PROGRAMS += \
+  fuzz_tls
 endif
 
 .NOTPARALLEL:
@@ -85,6 +97,20 @@ fuzz_request_SOURCES = \
   fuzz_request.c fuzz_common.h
 fuzz_request_LDFLAGS = $(AM_LDFLAGS) -static
 
+fuzz_options_SOURCES = \
+  fuzz_options.c fuzz_common.h
+fuzz_options_LDFLAGS = $(AM_LDFLAGS) -static
+
+fuzz_eventloop_SOURCES = \
+  fuzz_eventloop.c fuzz_common.h
+fuzz_eventloop_LDFLAGS = $(AM_LDFLAGS) -static
+
+fuzz_tls_SOURCES = \
+  fuzz_tls.c fuzz_common.h
+fuzz_tls_CPPFLAGS = $(AM_CPPFLAGS) $(MHD_TLS_LIB_CPPFLAGS)
+fuzz_tls_LDFLAGS = $(AM_LDFLAGS) $(MHD_TLS_LIB_LDFLAGS) -static
+fuzz_tls_LDADD = $(LDADD) $(MHD_TLS_LIBDEPS)
+
 fuzz_str_SOURCES = \
   fuzz_str.c fuzz_common.h
 fuzz_str_LDFLAGS = $(AM_LDFLAGS) -static
@@ -92,6 +118,10 @@ fuzz_str_LDFLAGS = $(AM_LDFLAGS) -static
 fuzz_auth_header_SOURCES = \
   fuzz_auth_header.c fuzz_common.h
 fuzz_auth_header_LDFLAGS = $(AM_LDFLAGS) -static
+
+fuzz_memorypool_SOURCES = \
+  fuzz_memorypool.c fuzz_common.h
+fuzz_memorypool_LDFLAGS = $(AM_LDFLAGS) -static
 
 fuzz_postprocessor_SOURCES = \
   fuzz_postprocessor.c fuzz_common.h

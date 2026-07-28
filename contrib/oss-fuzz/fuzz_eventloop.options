@@ -1,0 +1,3 @@
+[libfuzzer]
+dict = fuzz_eventloop.dict
+max_len = 512

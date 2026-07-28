@@ -1,0 +1,75 @@
+# libFuzzer dictionary for fuzz_eventloop (GNU libmicrohttpd).
+#
+# The input is not HTTP: bytes 0-4 configure the daemon, the access handler
+# and the event-loop defaults, and byte 5.. is a program of one-byte
+# operations, "(opcode << 4) | argument".  See src/fuzz/fuzz_eventloop.c for
+# the full encoding.  The tokens below are therefore *operations* and short
+# operation sequences, not protocol syntax; single interesting bytes are left
+# to libFuzzer's own mutators.
+
+# --- one full external-event-loop round ---------------------------------
+#     MHD_get_fdset2() / select() / MHD_run_from_select2()
+round_v2="\x21\xf0\x31"
+#     MHD_get_fdset() / select() / MHD_run_from_select()   (the v1 pair)
+round_v1="\x20\xf0\x30"
+#     ... with the timeout queried in between, which is what the API asks for
+round_timeout="\x21\xf0\x40\x31"
+
+# --- individual event-loop entry points ---------------------------------
+get_fdset_v1="\x20"
+get_fdset2="\x21"
+get_fdset2_small="\x22"
+get_fdset2_no_maxfd="\x23"
+get_fdset2_no_except="\x24"
+poll="\xf0"
+run_from_select_v1="\x30"
+run_from_select2="\x31"
+run="\x32"
+run_wait="\x33"
+get_timeout="\x40"
+quiesce="\xb0"
+
+# --- descriptor sets that do not match what MHD asked for ---------------
+run_zero_sets="\x34"
+run_all_ones="\x38"
+run_read_only="\x3c"
+run2_zero_sets="\x35"
+run2_all_ones="\x39"
+
+# --- connection life cycle ----------------------------------------------
+new_connection="\x80"
+close_connection="\x90"
+close_abrupt="\x98"
+switch_connection="\xa0"
+drain_all="\xc8"
+set_conn_timeout="\xd0"
+set_conn_timeout_0="\xd8"
+suspend="\x60"
+resume="\x70"
+suspend_resume="\x60\x70"
+suspend_run_resume="\x60\x32\x70\x32"
+
+# --- the artificial clock ------------------------------------------------
+clock_step="\x50"
+clock_expiry="\x5f"
+
+# --- request fragments ---------------------------------------------------
+send_full_get="\x00"
+send_partial_get="\x01"
+send_crlf="\x02"
+send_post_cl="\x03"
+send_body="\x04"
+send_post_chunked="\x05"
+send_chunk="\x06"
+send_last_chunk="\x07"
+send_close="\x08"
+send_http10="\x09"
+send_head="\x0a"
+send_pipelined="\x0b"
+send_raw="\x10"
+
+# --- whole schedules that reach the interesting states -------------------
+request_then_loop="\x00\x21\xf0\x31\x40"
+park_then_stop="\x00\x32\x60\x40\x32"
+quiesce_then_fdset="\xb0\x21\x40"
+expiry="\x01\x32\x40\x5f\x40\x32"
