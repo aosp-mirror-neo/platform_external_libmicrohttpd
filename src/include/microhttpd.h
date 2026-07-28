@@ -5922,7 +5922,10 @@ MHD_digest_auth_check (struct MHD_Connection *connection,
  * @param digest_size number of bytes in @a digest (size must match @a algo!)
  * @param nonce_timeout The amount of time for a nonce to be
  *      invalid in seconds
- * @param algo digest algorithms allowed for verification
+ * @param algo digest algorithm allowed for verification; exactly one
+ *      algorithm must be named, as @a digest is a hash produced by one
+ *      specific algorithm.  #MHD_DIGEST_ALG_AUTO cannot be used here
+ *      and makes this function return #MHD_NO
  * @return #MHD_YES if authenticated, #MHD_NO if not,
  *         #MHD_INVALID_NONCE if nonce is invalid or stale
  * @note Available since #MHD_VERSION 0x00096200

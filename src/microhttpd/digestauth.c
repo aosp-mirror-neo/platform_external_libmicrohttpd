@@ -3425,7 +3425,10 @@ MHD_digest_auth_check2 (struct MHD_Connection *connection,
  * @param digest_size number of bytes in @a digest (size must match @a algo!)
  * @param nonce_timeout The amount of time for a nonce to be
  *      invalid in seconds
- * @param algo digest algorithms allowed for verification
+ * @param algo digest algorithm allowed for verification; exactly one
+ *      algorithm must be named, as @a digest is a hash produced by one
+ *      specific algorithm.  #MHD_DIGEST_ALG_AUTO cannot be used here
+ *      and makes this function return #MHD_NO
  * @return #MHD_YES if authenticated, #MHD_NO if not,
  *         #MHD_INVALID_NONCE if nonce is invalid or stale
  * @note Available since #MHD_VERSION 0x00096200
@@ -3445,7 +3448,23 @@ MHD_digest_auth_check_digest2 (struct MHD_Connection *connection,
   enum MHD_DigestAuthMultiAlgo3 malgo3;
 
   if (MHD_DIGEST_ALG_AUTO == algo)
-    malgo3 = MHD_DIGEST_AUTH_MULT_ALGO3_ANY_NON_SESSION;
+  {
+    /* MHD_DIGEST_ALG_AUTO maps to more than one base hashing algorithm,
+     * but @a digest is a hash of one specific algorithm and its length
+     * does not identify which one (SHA-256 and SHA-512/256 hashes are
+     * both 32 bytes).  Forwarding AUTO to
+     * MHD_digest_auth_check_digest3() would therefore reach the
+     * MHD_PANIC() in that function and kill the process.  Report it as
+     * a failed authentication instead; the caller cannot recover from
+     * an abort, but it can handle MHD_NO. */
+#ifdef HAVE_MESSAGES
+    MHD_DLOG (connection->daemon,
+              _ ("MHD_DIGEST_ALG_AUTO cannot be used with a " \
+                 "pre-calculated digest: exactly one algorithm must be " \
+                 "named, as the digest was produced by one.\n"));
+#endif /* HAVE_MESSAGES */
+    return MHD_NO;
+  }
   else if (MHD_DIGEST_ALG_MD5 == algo)
     malgo3 = MHD_DIGEST_AUTH_MULT_ALGO3_MD5;
   else if (MHD_DIGEST_ALG_SHA256 == algo)
