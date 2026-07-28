@@ -376,6 +376,37 @@ extern void
 __sanitizer_set_death_callback (void (*cb)(void)) __attribute__ ((weak));
 
 
+/**
+ * Ignore SIGPIPE.  Idempotent, so it is safe to call on every execution.
+ *
+ * This deliberately lives OUTSIDE the #ifndef FUZZ_NO_MAIN block below,
+ * because it is needed by the fuzz *target*, not merely by the built-in
+ * driver.  fuzz_request writes into an AF_UNIX socketpair whose peer end
+ * MHD may already have closed (any input that makes the daemon drop the
+ * connection early does this), and a write() to a socket with no reader
+ * raises SIGPIPE.
+ *
+ * None of the external engines does this for us: libFuzzer intercepts
+ * SEGV/BUS/ABRT/ILL/FPE/INT/TERM/XFSZ/USR1/USR2 and has no
+ * -handle_sigpipe flag at all, and AFL++/honggfuzz likewise leave the
+ * default disposition in place.  So without this call an OSS-Fuzz build
+ * of fuzz_request is killed by SIGPIPE after a few dozen executions,
+ * with no stack trace, no artifact and no report -- the target simply
+ * stops fuzzing.  Measured here: dead after ~28 execs without it,
+ * 540000 execs in 31 s with it.
+ */
+FUZZ_UNUSED static void
+fuzz_ignore_sigpipe (void)
+{
+  static int sigpipe_ignored;
+
+  if (sigpipe_ignored)
+    return;
+  sigpipe_ignored = 1;
+  (void) signal (SIGPIPE, SIG_IGN);
+}
+
+
 #ifndef FUZZ_NO_MAIN
 
 static void
@@ -395,7 +426,7 @@ fuzz_install_handlers (void)
   (void) sigaction (SIGILL, &sa, NULL);
   (void) sigaction (SIGFPE, &sa, NULL);
   (void) sigaction (SIGALRM, &sa, NULL);
-  (void) signal (SIGPIPE, SIG_IGN);
+  fuzz_ignore_sigpipe ();
 }
 
 

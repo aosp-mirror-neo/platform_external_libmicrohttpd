@@ -217,10 +217,40 @@ Two consequences for anyone editing `src/fuzz/`:
   `main()` may be `#ifndef FUZZ_NO_MAIN`; a harness whose fuzz target is
   itself conditional silently produces an empty OSS-Fuzz binary.
 * **Anything the fuzz target needs must not live inside the
-  `#ifndef FUZZ_NO_MAIN` block of `fuzz_common.h`.**  Today the split is
-  right: the PRNG, the crash bookkeeping and `fuzz_report_finding()` are
+  `#ifndef FUZZ_NO_MAIN` block of `fuzz_common.h`.**  The PRNG, the crash
+  bookkeeping, `fuzz_report_finding()` and `fuzz_ignore_sigpipe()` are
   outside it; the generator loop, the mutator, the corpus walker and
   `main()` are inside.
+
+  This is easy to get wrong and the failure is silent, so it is worth
+  spelling out how it already bit us once.  `signal (SIGPIPE, SIG_IGN)`
+  used to sit in `fuzz_install_handlers()`, i.e. inside the block.  Under
+  the built-in driver everything looked perfect; under `-DFUZZ_NO_MAIN`
+  the call vanished, and since `fuzz_request` writes into a socketpair
+  whose peer MHD closes on any input that terminates the connection
+  early, the process took a SIGPIPE and died after a few dozen
+  executions.  libFuzzer does not intercept SIGPIPE (there is no
+  `-handle_sigpipe`; see `-help=1`), so there was no stack trace, no
+  artifact and no crash report -- the target just stopped, which reads
+  exactly like a clean run that found nothing.  It is now
+  `fuzz_ignore_sigpipe()`, called from both the driver and
+  `LLVMFuzzerTestOneInput()`.
+
+  The lesson generalises: a bug in this split cannot be caught by
+  `make -C src/fuzz check`, because that path always defines `main()`.
+  After touching `fuzz_common.h`, build the OSS-Fuzz way as well and
+  confirm the target still runs -- `contrib/oss-fuzz/build.sh` works
+  standalone on any machine with clang and `libclang-rt-dev`:
+
+  ```sh
+  git clone --shared . /tmp/mhd-fuzz-src        # build.sh needs a tree
+                                                # with no in-tree config.status
+  WORK=/tmp/mhd-fuzz-work OUT=/tmp/mhd-fuzz-out \
+    MHD_SRC=/tmp/mhd-fuzz-src /tmp/mhd-fuzz-src/contrib/oss-fuzz/build.sh
+  /tmp/mhd-fuzz-out/fuzz_request /tmp/mhd-fuzz-out/../corpus -max_total_time=60
+  echo "exit=$?"        # anything but 0 here is a bug in the harness,
+                        # not a finding
+  ```
 
 `contrib/oss-fuzz/` also relies on two things this directory provides:
 `make -C src/fuzz refresh-corpus` (to regenerate `corpus/`) and the

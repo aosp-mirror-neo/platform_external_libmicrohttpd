@@ -166,6 +166,63 @@ modifies the checkout.  The git checkout ships no `configure`, so
 chain and therefore cannot be trusted to return a failure status,
 `build.sh` checks for the product and falls back to `autoreconf -fi`.
 
+Note that out-of-tree does *not* mean the checkout can be a tree you
+have already configured in place: an in-tree `config.status` makes any
+subsequent out-of-tree `configure` stop with "source directory already
+configured; run \"make distclean\" there first".  Either `make
+distclean` the checkout or -- better, and closer to what OSS-Fuzz
+actually does -- point `$MHD_SRC` at a pristine clone:
+
+    git clone --shared /path/to/libmicrohttpd /tmp/mhd-fuzz-src
+
+
+### $CFLAGS / $CXXFLAGS on a local run
+
+Under OSS-Fuzz these are always exported by the base-builder image and
+`build.sh` uses them verbatim.  When they are unset -- i.e. only on a
+local run -- `build.sh` derives them from `$SANITIZER`.  Two flags are
+what make such a run a real fuzzing run rather than a build that merely
+succeeds:
+
+  * `-fsanitize=fuzzer-no-link` installs libFuzzer's coverage
+    instrumentation into every translation unit of the library.  Without
+    it there is no feedback signal at all: libFuzzer degenerates to blind
+    random generation, `cov:` never moves and the corpus never grows.
+    This is the single easiest thing to leave out, and nothing about the
+    resulting build looks wrong.
+  * a sanitizer, because libFuzzer on its own only notices crashes the
+    kernel delivers.  (MHD's own oracles -- the `MHD_set_panic_func()`
+    tripwire and `mhd_assert()` -- do fire without one, which is why
+    `SANITIZER=none` is still worth something.)
+
+The `address` default folds UBSan into the ASan build, with
+`-fno-sanitize-recover=undefined` so that UB actually kills the process
+instead of printing and continuing.  That differs deliberately from
+OSS-Fuzz, which runs `address` and `undefined` as two separate
+campaigns: it has unlimited machine time and wants each report
+attributed to one sanitizer, whereas a local run has an afternoon and is
+better off with two oracles per CPU-hour.  Pass `SANITIZER=undefined`
+explicitly to get the split OSS-Fuzz shape.
+
+`SANITIZER=memory` is accepted but is only meaningful inside the
+OSS-Fuzz image, where the C library is instrumented too; on a distro
+toolchain it reports uninitialised reads in libc frames.
+
+A complete local run then needs nothing but clang and the compiler-rt
+runtimes (on Debian: `clang`, `libclang-rt-dev`, and `llvm` for
+`llvm-symbolizer`, without which every trace is bare addresses):
+
+    git clone --shared . /tmp/mhd-fuzz-src
+    WORK=/tmp/mhd-fuzz-work OUT=/tmp/mhd-fuzz-out MHD_SRC=/tmp/mhd-fuzz-src \
+      /tmp/mhd-fuzz-src/contrib/oss-fuzz/build.sh
+    mkdir /tmp/c && unzip -q /tmp/mhd-fuzz-out/fuzz_request_seed_corpus.zip -d /tmp/c
+    /tmp/mhd-fuzz-out/fuzz_request /tmp/c \
+        -dict=/tmp/mhd-fuzz-out/fuzz_request.dict -max_len=8192 \
+        -jobs=8 -workers=8 -max_total_time=3600
+
+`build.sh` prints the resolved `CC`, `CXX`, `CFLAGS` and `CXXFLAGS` in
+its banner; check there first if a local run finds nothing.
+
 
 -------------------------------------------------------------------
 4. Building and running locally with infra/helper.py

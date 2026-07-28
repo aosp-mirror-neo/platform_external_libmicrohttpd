@@ -638,6 +638,14 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
   unsigned int nconn = 1;
   static uint8_t xbuf[FUZZ_MAX_INPUT + 4096];
 
+  /* Must happen before the first write() into the socketpair.  The
+     built-in driver also does this from fuzz_install_handlers(), but
+     that is compiled out under -DFUZZ_NO_MAIN, which is exactly the
+     build every external fuzzing engine uses; the call is idempotent,
+     so doing it from both places is harmless.  See fuzz_ignore_sigpipe()
+     in fuzz_common.h for why the process dies without it. */
+  fuzz_ignore_sigpipe ();
+
   if (size < 6)
     return 0;
 

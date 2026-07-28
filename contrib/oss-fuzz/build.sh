@@ -32,10 +32,100 @@ WORK="${WORK:-${SRC}/work}"
 OUT="${OUT:-${SRC}/out}"
 CC="${CC:-clang}"
 CXX="${CXX:-clang++}"
-CFLAGS="${CFLAGS:--O1 -fno-omit-frame-pointer -gline-tables-only}"
-CXXFLAGS="${CXXFLAGS:-${CFLAGS}}"
 LIB_FUZZING_ENGINE="${LIB_FUZZING_ENGINE:--fsanitize=fuzzer}"
 SANITIZER="${SANITIZER:-address}"
+
+# --- $CFLAGS / $CXXFLAGS -----------------------------------------------------
+#
+# Under OSS-Fuzz $CFLAGS and $CXXFLAGS are always exported by the
+# base-builder image and MUST be used verbatim, so everything below is
+# dead code there: it fires only when the variable is unset, i.e. only on
+# a local run.
+#
+# The point of the defaults is that a local run must be a *real* fuzzing
+# run.  Two flags are what make it one, and leaving either out produces a
+# build that looks fine and finds nothing:
+#
+#   -fsanitize=fuzzer-no-link
+#         installs libFuzzer's coverage instrumentation (SanitizerCoverage
+#         trace-pc-guard + the comparison hooks) in every translation unit
+#         of the library.  Without it libFuzzer gets no feedback signal at
+#         all and degenerates into blind random input generation --
+#         `cov:` stays flat and the corpus never grows.  "-no-link" is the
+#         compile-time half; $LIB_FUZZING_ENGINE supplies the driver at
+#         link time.
+#   a sanitizer
+#         libFuzzer by itself only notices a crash the kernel delivers.
+#         ASan/UBSan are what turn a silently-tolerated overflow into a
+#         report.  Note that MHD's own oracles -- the
+#         MHD_set_panic_func() tripwire and mhd_assert(), enabled by the
+#         --enable-asserts below -- work without any sanitizer, which is
+#         why SANITIZER=none is still worth something.
+#
+# The mapping below mirrors what OSS-Fuzz's own helper passes for each
+# $SANITIZER value, with one deliberate difference in the "address" case,
+# noted there.
+if [ -z "${CFLAGS:-}" ]; then
+  # -O1                     OSS-Fuzz's optimisation level for fuzz builds:
+  #                         fast enough to get exec/s, low enough that
+  #                         inlining does not destroy the stack traces.
+  # -fno-omit-frame-pointer needed for usable ASan/libFuzzer backtraces.
+  # -gline-tables-only      just enough debug info to symbolize; a full -g
+  #                         would multiply build time and object size.
+  _mhd_base_cflags="-O1 -fno-omit-frame-pointer -gline-tables-only"
+
+  case "${SANITIZER}" in
+    address)
+      # OSS-Fuzz builds "address" and "undefined" as two separate
+      # campaigns, because it has unlimited machine time and wants each
+      # report attributed to one sanitizer.  A local run has an afternoon
+      # at most, so the default folds UBSan into the ASan build: two
+      # oracles per CPU-hour instead of one, at a few percent of speed.
+      # Set SANITIZER=undefined explicitly for the split OSS-Fuzz shape.
+      #
+      # -fno-sanitize-recover=undefined is essential: by default UBSan
+      # *prints* and continues, and libFuzzer only records a finding for a
+      # process that dies.  Without it UB scrolls past and the run is
+      # reported clean.
+      _mhd_san_cflags="-fsanitize=address,undefined"
+      _mhd_san_cflags="${_mhd_san_cflags} -fsanitize-address-use-after-scope"
+      _mhd_san_cflags="${_mhd_san_cflags} -fno-sanitize-recover=undefined"
+      ;;
+    undefined)
+      _mhd_san_cflags="-fsanitize=undefined -fno-sanitize-recover=undefined"
+      ;;
+    memory)
+      # MSan reports uninitialised reads from *any* uninstrumented code it
+      # links against, so this is only usable when the C library is
+      # instrumented too -- true inside the OSS-Fuzz image, essentially
+      # never true on a distro toolchain.  Expect false positives in libc
+      # frames locally; use the OSS-Fuzz container for a real MSan run.
+      _mhd_san_cflags="-fsanitize=memory -fsanitize-memory-track-origins"
+      ;;
+    coverage)
+      # A coverage build is not a fuzzing build: it replays an existing
+      # corpus to produce a report, so no sanitizer and no libFuzzer
+      # coverage instrumentation.
+      _mhd_san_cflags="-fprofile-instr-generate -fcoverage-mapping"
+      ;;
+    none | "")
+      _mhd_san_cflags=""
+      ;;
+    *)
+      echo "ERROR: unknown SANITIZER='${SANITIZER}'" >&2
+      echo "       expected: address | undefined | memory | coverage | none" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "${SANITIZER}" = "coverage" ]; then
+    CFLAGS="${_mhd_base_cflags} ${_mhd_san_cflags}"
+  else
+    CFLAGS="${_mhd_base_cflags} ${_mhd_san_cflags} -fsanitize=fuzzer-no-link"
+  fi
+  unset _mhd_base_cflags _mhd_san_cflags
+fi
+CXXFLAGS="${CXXFLAGS:-${CFLAGS}}"
 
 # Directory holding the libmicrohttpd sources.  OSS-Fuzz clones them to
 # $SRC/libmicrohttpd (see Dockerfile); allow an override for local runs.
@@ -56,6 +146,9 @@ echo "    BUILD              = ${BUILD}"
 echo "    OUT                = ${OUT}"
 echo "    SANITIZER          = ${SANITIZER}"
 echo "    LIB_FUZZING_ENGINE = ${LIB_FUZZING_ENGINE}"
+echo "    CC / CXX           = ${CC} / ${CXX}"
+echo "    CFLAGS             = ${CFLAGS}"
+echo "    CXXFLAGS           = ${CXXFLAGS}"
 
 # ---------------------------------------------------------------------------
 # 1. Bootstrap (the git checkout ships no 'configure')
