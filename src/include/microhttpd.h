@@ -1440,6 +1440,12 @@ enum MHD_FLAG
    * or #MHD_add_connection.
    * This option is enforced by #MHD_ALLOW_SUSPEND_RESUME or
    * #MHD_USE_NO_LISTEN_SOCKET.
+   * Note that while this flag has no effect of its own with "external"
+   * sockets polling, the channel implied by #MHD_ALLOW_SUSPEND_RESUME
+   * is created and used in that mode as well: #MHD_get_fdset() adds it
+   * to the read set, so that #MHD_resume_connection() called from
+   * another thread interrupts a blocking select()/poll() of the
+   * application.  See #MHD_resume_connection().
    * #MHD_USE_ITC is always used automatically on platforms
    * where select()/poll()/other ignore shutdown of listen
    * socket.
@@ -3852,6 +3858,16 @@ MHD_suspend_connection (struct MHD_Connection *connection);
  * again calling #MHD_get_fdset()), as otherwise the change may not be
  * reflected in the set returned by #MHD_get_fdset() and you may end up
  * with a connection that is stuck until the next network activity.
+ *
+ * This function may be called from any thread.  In "external" sockets
+ * polling mode it writes to the inter-thread communication channel that
+ * #MHD_ALLOW_SUSPEND_RESUME sets up, and as #MHD_get_fdset() puts the
+ * reading end of that channel into the read set, a call from another
+ * thread interrupts a select()/poll() that the application is blocked
+ * in.  This matters because #MHD_get_timeout() reports no timeout at
+ * all while every connection is suspended, so the application would
+ * otherwise block indefinitely.  The channel is level triggered, hence
+ * a resume issued between #MHD_get_fdset() and select() cannot be lost.
  *
  * @param connection the connection to resume
  */
