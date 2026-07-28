@@ -3,7 +3,7 @@ SUBDIRS  = .
 
 AM_CPPFLAGS = \
   -I$(top_srcdir)/src/include \
-  $(CPPFLAGS_ac) \
+  $(CPPFLAGS_ac) $(LIBCURL_CPPFLAGS) \
   -DDATA_DIR=\"$(top_srcdir)/src/datadir/\"
 
 AM_CFLAGS = $(CFLAGS_ac) @LIBGCRYPT_CFLAGS@
@@ -42,6 +42,12 @@ noinst_PROGRAMS = \
 if MHD_HAVE_EPOLL
 noinst_PROGRAMS += \
   suspend_resume_epoll
+if HAVE_FORK_WAITPID
+if RUN_LIBCURL_TESTS
+check_PROGRAMS = test_suspend_resume_epoll
+TESTS = $(check_PROGRAMS)
+endif
+endif
 endif
 
 if HAVE_JANSSON
@@ -174,6 +180,11 @@ suspend_resume_epoll_CPPFLAGS = \
  $(AM_CPPFLAGS) $(MHD_CPU_COUNT_DEF)
 suspend_resume_epoll_LDADD = \
  $(top_builddir)/src/microhttpd/libmicrohttpd.la
+
+test_suspend_resume_epoll_SOURCES = \
+ test_suspend_resume_epoll.c
+test_suspend_resume_epoll_LDADD = \
+ @LIBCURL@
 
 benchmark_https_SOURCES = \
  benchmark_https.c

@@ -40,3 +40,8 @@ minimal_example_empty
 minimal_example_empty_tls
 /digest_auth_example_adv
 json_echo
+/suspend_resume_epoll
+/test_suspend_resume_epoll
+# Produced by the automake test harness
+*.log
+*.trs
