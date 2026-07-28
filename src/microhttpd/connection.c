@@ -6405,7 +6405,11 @@ get_req_header (struct MHD_Connection *c,
     else
     {
       /* Not a whitespace, not the end of the header line */
-      mhd_assert ('\r' != chr);
+      /* A bare CR reaches this point when it is kept as an ordinary
+         character ('bare_cr_keep', MHD_OPTION_CLIENT_DISCIPLINE_LVL -3);
+         in every other mode it is either replaced with a space or
+         rejected before. */
+      mhd_assert (('\r' != chr) || bare_cr_keep);
       mhd_assert ('\n' != chr);
       mhd_assert ('\0' != chr);
       if ( (! c->rq.hdrs.hdr.name_end_found) &&
