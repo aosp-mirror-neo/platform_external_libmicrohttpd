@@ -6104,8 +6104,14 @@ get_req_header (struct MHD_Connection *c,
                 (c->rq.hdrs.hdr.name_end_found));
     mhd_assert ((0 == c->rq.hdrs.hdr.value_start) || \
                 (c->rq.hdrs.hdr.name_len < c->rq.hdrs.hdr.value_start));
+    /* A zero-length header (field) name is possible in two deliberately
+       non-conformant modes: a first line starting with whitespace (which is
+       discarded as a whole when its end is reached) and an empty field name
+       allowed by 'allow_empty_name'. */
     mhd_assert ((0 == c->rq.hdrs.hdr.value_start) || \
-                (0 != c->rq.hdrs.hdr.name_len));
+                (0 != c->rq.hdrs.hdr.name_len) || \
+                (c->rq.hdrs.hdr.starts_with_ws) || \
+                (allow_empty_name && c->rq.hdrs.hdr.name_end_found));
     mhd_assert ((0 == c->rq.hdrs.hdr.ws_start) || \
                 (0 == c->rq.hdrs.hdr.name_len) || \
                 (c->rq.hdrs.hdr.ws_start > c->rq.hdrs.hdr.name_len));
