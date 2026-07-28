@@ -4371,7 +4371,7 @@ parse_http_version (struct MHD_Connection *connection,
   const char *const h = http_string; /**< short alias */
   mhd_assert (NULL != http_string);
 
-  /* String must start with 'HTTP/d.d', case-sensetive match.
+  /* String must start with 'HTTP/d.d', case-sensitive match.
    * See https://www.rfc-editor.org/rfc/rfc9112#name-http-version */
   if ((HTTP_VER_LEN != len) ||
       ('H' != h[0]) || ('T' != h[1]) || ('T' != h[2]) || ('P' != h[3]) ||

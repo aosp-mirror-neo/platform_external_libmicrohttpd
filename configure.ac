@@ -754,7 +754,7 @@ AS_VAR_IF([enable_linker_hardening],["yes"],
       [MHD_CHECK_ADD_CC_LDFLAG([-Wl,-z,now],[LDFLAGS_ac])])
     # Actually should be "noexec" by default, but let's try to enforce it.
     MHD_CHECK_ADD_CC_LDFLAG([-Wl,-z,noexecstack],[LDFLAGS_ac])
-    # W32-specific. Some are enabled by default, but they will be enfored to be sure.
+    # W32-specific. Some are enabled by default, but they will be enforced to be sure.
     MHD_CHECK_ADD_CC_LDFLAGS([-Wl,--large-address-aware -Wl,--enable-auto-image-base],[LDFLAGS_ac])
     MHD_CHECK_ADD_CC_LDFLAGS([-Wl,--dynamicbase -Wl,--nxcompat -Wl,--high-entropy-va],[LDFLAGS_ac])
     LDFLAGS="${LDFLAGS_ac} ${user_LDFLAGS}"

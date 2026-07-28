@@ -119,7 +119,7 @@ iovec_ahc (void *cls,
   {
     int *chunk;
     /* Assign chunks of memory area in the reverse order
-     * to make non-continous set of data therefore
+     * to make non-continuous set of data therefore
      * possible buffer overruns could be detected */
     chunk = data + (((TESTSTR_IOVCNT - 1) - (unsigned int) j)
                     * (TESTSTR_SIZE / TESTSTR_IOVCNT / sizeof(int)));

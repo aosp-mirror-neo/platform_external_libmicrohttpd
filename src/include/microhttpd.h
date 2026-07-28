@@ -71,7 +71,7 @@
  * @defgroup authentication HTTP authentication
  * MHD API related to basic and digest HTTP authentication.
  * @defgroup logging logging
- * MHD API to mange logging and error handling
+ * MHD API to manage logging and error handling
  * @defgroup specialized misc. specialized functions
  * This group includes functions that do not fit into any particular
  * category and that are rarely used.
@@ -1890,7 +1890,7 @@ enum MHD_OPTION
 
   /**
    * Size of the internal array holding the map of the nonce and
-   * the nonce counter. This option should be followed by an `unsigend int`
+   * the nonce counter. This option should be followed by an `unsigned int`
    * argument.
    * The map size is 4 by default, which is enough to communicate with
    * a single client at any given moment of time, but not enough to

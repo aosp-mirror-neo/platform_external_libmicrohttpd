@@ -902,7 +902,7 @@ MHD_str_remove_token_caseless_ (const char *str,
 
     cur_token = s1; /* the first char of input token */
 
-    /* Check the token with case-insensetive match */
+    /* Check the token with case-insensitive match */
     t_pos = 0;
     while ( ((size_t) (s1 - str) < str_len) && (token_len > t_pos) &&
             (charsequalcaseless (*s1, token[t_pos])) )
