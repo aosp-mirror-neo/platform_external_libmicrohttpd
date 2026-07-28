@@ -23,7 +23,13 @@ make -C src/fuzz check \
      MHD_FUZZ_ITERATIONS="${FUZZ_ITERATIONS}" \
      MHD_FUZZ_SEED="${FUZZ_SEED}"
 
-# Replay the whole committed seed corpus - including
-# corpus/known-findings/ - through every harness.  This is the part that
-# proves a fixed crash stays fixed, and it is cheap.
+# Replay the whole committed seed corpus through every harness.  This is
+# the part that proves a fixed crash stays fixed, and it is cheap.
+#
+# corpus/known-findings/ is deliberately NOT included: check-corpus does
+# not recurse, and the reproducers of the findings that are still open
+# (src/fuzz/README section 6, patches/) are expected to fail on a build
+# with --enable-asserts.  Replay those by hand when working on a fix:
+#   for f in src/fuzz/corpus/known-findings/*.bin ; do
+#     ./src/fuzz/fuzz_request --file="$f" ; done
 make -C src/fuzz check-corpus

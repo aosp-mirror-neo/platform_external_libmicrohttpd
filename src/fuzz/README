@@ -78,8 +78,11 @@ MHD_get_connection_info() see something sane.
                0x04  run the request body through MHD_post_process()
                0x08  iterate MHD_get_connection_values() over headers,
                      GET arguments, cookies and footers
+               0x10  unused (see 2.2.1)
                0x20  reply with a larger, copied response body
+                     (only meaningful for response kind 0)
                0x40  reply 403 instead of 200
+               0x80  unused
     byte 2   low nibble: MHD_OPTION_CLIENT_DISCIPLINE_LVL selector
              (index into {-3,-2,-1,0,1,2});
              high nibble: reserved for MHD_OPTION_SERVER_INSANITY
@@ -87,7 +90,8 @@ MHD_get_connection_info() see something sane.
     byte 3   digest configuration: bits 0-1 select the algorithm of the
              401 challenge {SHA-256, MD5, SHA-512-256, SHA-256},
              bit 2 selects the QOP, bits 4-5 select MHD_OPTION_NONCE_NC_SIZE
-    byte 4.. a sequence of *send segments*.  Each segment starts with a
+    byte 4-9 the API-selection block, see 2.2.1
+    byte 10. a sequence of *send segments*.  Each segment starts with a
              little-endian 16 bit header:
 
                  (op << 14) | length          length <= 0x3FFF
@@ -104,6 +108,112 @@ An explicit length encoding (rather than a magic delimiter) is used so
 that the fuzzer can move a split point without having to invent an
 escaping scheme.  Splitting matters: MHD's parser is incremental and
 several bugs only appear for particular split points.
+
+An input shorter than ten bytes is rejected: the configuration block is
+mandatory, and an input that short has no segment stream either.
+
+2.2.1 The API-selection block
+-----------------------------
+
+Bytes 4-9 pick which parts of the public API the iteration touches.
+They are always present.  Bytes 0-3 alone decide how MHD *parses* the
+request; these six decide which of the response constructors, which
+authentication entry point, which event loop, and which introspection
+calls run against the parsed result.
+
+The all-zero setting is the plainest one -- a static two byte buffer
+response, MHD_run() as the event loop, no suspend, no upgrade, no extra
+introspection -- so zeroing bytes 4-9 of any input reduces it to the
+request-parsing-only behaviour that the harness had before these bytes
+existed.
+
+These bytes were gated behind bit 0x10 of byte 1 while they were being
+brought up, so that the corpus predating them kept its byte-exact
+meaning.  The gate is gone; bit 0x10 is left unused rather than
+reassigned, so that a corpus file written while it was a gate cannot
+silently change meaning.  The reproducers in known-findings/ that predate
+the change (K1-K6, seven files) were migrated by inserting six zero bytes
+at offset 4 -- the identity transformation, since the all-zero block is
+the old behaviour -- and all seven still drive MHD along their recorded
+paths, verified by comparing the --verbose daemon, handler, body and
+challenge counts before and after.
+
+    byte 4   response construction
+               bits 0-3  which constructor to use:
+                 0 buffer_static     1 buffer_copy      2 empty
+                 3 buffer/PERSISTENT 4 buffer/MUST_FREE 5 buffer/MUST_COPY
+                 6 buffer_with_free_callback            7 data (copy)
+                 8 data (free)       9 callback, known length
+                10 callback, MHD_SIZE_UNKNOWN (chunked reply)
+                11 fd               12 fd_at_offset    13 fd64
+                14 pipe             15 iovec
+               bits 4-5  number of response headers to add (0-3)
+               bit  6    also add a response footer (a chunked trailer)
+               bit  7    exercise MHD_get_response_header(),
+                         MHD_get_response_headers(),
+                         MHD_del_response_header() and
+                         MHD_set_response_options()
+    byte 5   authentication entry point
+               bits 0-3  0 check3 (as before)     1 check
+                         2 check2                 3 check_digest
+                         4 check_digest2          5 check_digest3
+                         6 get_username           7 get_username3
+                         8 get_request_info3      9 as 0
+               bits 4-5  challenge variant: 0 queue_auth_required_response3,
+                         1 queue_auth_fail_response,
+                         2 queue_auth_fail_response2,
+                         3 the basic-auth pair
+               bit  6    use the v1 MHD_basic_auth_get_username_password()
+               bit  7    also call the connection-less digest helpers
+    byte 6   event loop and introspection
+               bits 0-1  0 MHD_run(), 1 MHD_get_fdset()+run_from_select(),
+                         2 and 3 the *2 variants
+               bit  2    query all four MHD_get_timeout*() forms
+               bit  3    MHD_lookup_connection_value(),
+                         MHD_lookup_connection_value_n(),
+                         MHD_get_connection_URI_path_n()
+               bit  4    MHD_set_connection_value()
+               bit  5    MHD_get_connection_info() / MHD_get_daemon_info()
+               bit  6    MHD_set_connection_option()
+               bit  7    MHD_quiesce_daemon() before stopping
+    byte 7   suspend and upgrade
+               bits 0-1  0 none, 1 suspend+resume in the handler,
+                         2 suspend and resume from the pump loop,
+                         3 as 1
+               bit  2    allow HTTP "Upgrade" (only acted on when the
+                         request really asks for one, see below)
+               bits 3-4  which MHD_upgrade_action() to issue first
+    byte 8   seed picking the response header names and values, and the
+             MHD_RF_* flags for MHD_set_response_options()
+    byte 9   seed for the content-reader callback: body length, block
+             size, and whether it fails part way through
+
+Two constraints on the harness are worth stating, because both are
+application-contract requirements rather than things worth fuzzing, and
+violating either makes MHD abort on input that is perfectly legal:
+
+  * the connection is only suspended when the handler is about to return
+    MHD_YES.  Returning MHD_NO asks MHD to terminate the connection, and
+    terminating one that the same callback just suspended trips
+    mhd_assert (! connection->suspended) in MHD_connection_close_();
+
+  * a 101 response is only queued for a request that is actually an
+    upgrade request (HTTP/1.1, an "Upgrade" header, and a "Connection"
+    header naming the upgrade token and not "close").  All three come
+    off the wire, so the path stays attacker-driven.
+
+    Unlike the suspend rule, this one is not sufficient, and is not
+    supposed to be: it is exactly the check a real application can
+    perform, and a request that passes it can still abort MHD.  That is
+    finding K7 in section 6.  Do not tighten it further to keep the
+    suite green -- the point is that an application cannot do better.
+
+The message-framing headers (Content-Length, Transfer-Encoding) are
+deliberately absent from the response-header table: MHD generates them
+itself from the response object, so an application that also sets them
+by hand is lying to the library about its own body.
+MHD_RF_INSANITY_HEADER_CONTENT_LENGTH is the sanctioned way to explore
+that corner and is reachable through bit 7 of byte 4.
 
 2.3 The %%NONCE%% placeholder
 -----------------------------
@@ -416,13 +526,105 @@ K6  digestauth.c:860  check_nonce_nc():
     The generator needs ~150k iterations to hit it on its own.
     Repro: corpus/known-findings/K6-nonce-length-collision.bin
 
+K7  connection.c:2596  build_header_response():
+        mhd_assert ((NULL == r->upgrade_handler) ||
+                    (MHD_CONN_MUST_UPGRADE == c->keepalive))
+    Open.  Driven entirely from the wire, with default daemon options.
+
+    While parsing the request headers, connection.c sets
+        c->keepalive = MHD_CONN_MUST_CLOSE
+    in three places for requests whose message framing it distrusts:
+
+      4988  two "Content-Length" headers with different values
+            (client discipline -3 only)
+      5012  "Transfer-Encoding" on an HTTP/1.0 request
+            (client discipline <= 0)
+      5051  "Content-Length" *and* "Transfer-Encoding: chunked" in the
+            same request -- no discipline gate at all, so this one
+            fires with the default configuration
+
+    In every case the request is then handed to the access handler as a
+    normal request.  If the handler answers 101 with a response from
+    MHD_create_response_for_upgrade(), MHD_queue_response() accepts it:
+    it checks MHD_ALLOW_UPGRADE, the status code, the "Connection"
+    header and the HTTP version, but not whether the connection can
+    still be kept open.  keepalive_possible() then returns
+    MHD_CONN_MUST_CLOSE from its very first test, which is placed
+    *before* the upgrade branch, and the assertion above fires while the
+    reply header is being built.
+
+    The application cannot defend itself.  The harness checks the
+    request the way an application would -- HTTP/1.1, an "Upgrade"
+    header, and a "Connection" header naming the upgrade token and not
+    "close" -- and the reproducer satisfies all three.  MHD's decision
+    is not exposed through any public accessor.
+
+    It needs --enable-asserts and an application that answers upgrade
+    requests, so it is a robustness defect rather than a memory-safety
+    one; but it is reachable from a single well-formed request against a
+    default-configured server, which is a good deal worse than the
+    "application misuse" it first looked like.
+
+    Fix: patches/K7.diff, which rejects the response in
+    MHD_queue_response() next to the other upgrade preconditions, so the
+    application gets MHD_NO instead of an abort.
+    Repro: corpus/known-findings/K7-upgrade-after-must-close.bin
+        GET / HTTP/1.1
+        Host: x
+        Connection: Upgrade
+        Upgrade: fuzz-protocol
+        Content-Length: 0
+        Transfer-Encoding: chunked
+        (then "0\r\n\r\n")
+
+K8  digestauth.c  MHD_digest_auth_check_digest2():
+        MHD_PANIC ("Wrong 'malgo3' value, only one base hashing
+                    algorithm ... must be specified, API violation")
+    Open.  An API-contract defect rather than a parsing bug: unlike K7
+    the offending argument comes from the application, not the network.
+
+    MHD_DIGEST_ALG_AUTO is a documented member of
+    enum MHD_DigestAuthAlgorithm, and the `algo` parameter of
+    MHD_digest_auth_check_digest2() is documented only as "digest
+    algorithms allowed for verification".  But the function maps AUTO to
+    MHD_DIGEST_AUTH_MULT_ALGO3_ANY_NON_SESSION and forwards it to
+    MHD_digest_auth_check_digest3(), which requires *exactly one* base
+    hashing algorithm because the caller supplies a pre-computed digest
+    of one specific length -- and aborts through MHD_PANIC() when more
+    than one is named.
+
+    So MHD_digest_auth_check_digest2 (..., MHD_DIGEST_ALG_AUTO)
+    deterministically kills the process.  The same is not true of
+    MHD_digest_auth_check2(), which takes a password rather than a
+    digest and whose AUTO handling is fine.
+
+    Unlike K7 this is entirely under the application's control -- no
+    network input is involved -- so it is a usability trap rather than a
+    robustness bug: AUTO simply cannot be used with the
+    pre-computed-digest entry points, and no mapping can rescue it,
+    because the digest length does not identify the algorithm (SHA-256
+    and SHA-512/256 digests are both 32 bytes).
+
+    Fix: patches/K8.diff, which documents the restriction in
+    microhttpd.h and returns MHD_NO instead of aborting.
+    Repro: none committed.  The argument is the application's, so the
+    harness never passes AUTO there (see run_digest_check() in
+    fuzz_request.c); to see it, change the MHD_DIGEST_ALG_* argument of
+    the variant-4 call to MHD_DIGEST_ALG_AUTO and replay
+    corpus/fuzz_request-36.bin.
+
 Status
 ------
 
 K1-K5 are fixed on master by commits 300a2ab0, 68c83f22, e04eb218,
-0b750975 and 6fcdfd43 respectively; K6 by f438804c.  All seven
+0b750975 and 6fcdfd43 respectively; K6 by f438804c.  Their seven
 reproducers in `corpus/known-findings/` therefore replay clean, and
 `make check-corpus` asserts exactly that.
+
+K7 and K8 are open, and their fixes are unapplied diffs in
+`../../patches/`.  K7 has a reproducer, which aborts on an
+`--enable-asserts` build and passes with patches/K7.diff applied; K8 has
+none, because its trigger is an argument the application chooses.
 
 The `make check` defaults in Makefile.am
 
@@ -494,9 +696,10 @@ Ready to go: see `../../contrib/oss-fuzz/` and its README.  That
 directory holds the OSS-Fuzz `build.sh`, `project.yaml` and `Dockerfile`,
 per-harness dictionaries (`dicts/fuzz_*.dict`), per-harness `.options`
 files (`max_len`, `dict`) and `make_seed_corpus.sh`, which packages
-`corpus/` — including `corpus/known-findings/`, so that K1-K6 become
-permanent regressions — into the `<fuzzer>_seed_corpus.zip` files
-OSS-Fuzz expects.
+`corpus/` — including the `corpus/known-findings/` reproducers of the
+findings that are already *fixed*, so that they become permanent
+regressions — into the `<fuzzer>_seed_corpus.zip` files OSS-Fuzz
+expects.
 
 `build.sh` configures out of tree with
 

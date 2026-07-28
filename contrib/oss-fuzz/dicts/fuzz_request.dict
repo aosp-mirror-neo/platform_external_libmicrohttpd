@@ -141,3 +141,16 @@ kv="a=b"
 kv_amp="&"
 kv_plus="+"
 kv_noeq="a"
+
+# HTTP "Upgrade" -- the extended configuration (byte 7 bit 0x04) only
+# answers 101 for a request that really asks to upgrade, so without
+# these tokens MHD_create_response_for_upgrade(), the upgrade handler
+# and MHD_upgrade_action() are statistically unreachable.
+upgrade_hdr="Upgrade: "
+upgrade_conn="Connection: Upgrade\x0d\x0a"
+upgrade_conn_lc="connection: upgrade\x0d\x0a"
+upgrade_websocket="Upgrade: websocket\x0d\x0a"
+upgrade_h2c="Upgrade: h2c\x0d\x0a"
+upgrade_proto="fuzz-protocol"
+upgrade_both="Connection: keep-alive, Upgrade\x0d\x0a"
+conn_close="Connection: close\x0d\x0a"

@@ -188,7 +188,7 @@ fi
 #  --enable-asserts
 #        keeps mhd_assert() alive.  Assertions on attacker-reachable paths
 #        are exactly what this campaign is meant to find; without them
-#        findings K1-K6 (src/fuzz/README section 6) are invisible.
+#        findings K1-K7 (src/fuzz/README section 6) are invisible.
 #  --disable-https
 #        deliberate.  The harnesses never speak TLS: they hand MHD an
 #        already-connected AF_UNIX socketpair via MHD_add_connection() and

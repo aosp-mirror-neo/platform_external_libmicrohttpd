@@ -61,6 +61,28 @@
 
 static const size_t pool_sizes[] = { 256, 512, 1024, 4096, 32768 };
 
+
+/**
+ * Exactly-sized, NUL terminated copy of @a len bytes of @a src.
+ *
+ * "Exactly sized" is the point: the allocation is @a len + 1 bytes and
+ * not one byte more, so ASAN's redzone sits immediately behind the
+ * terminator and any read past it is reported.
+ */
+static char *
+fuzz_dup_n (const char *src,
+            size_t len)
+{
+  char *r = (char *) malloc (len + 1);
+
+  if (NULL == r)
+    return NULL;
+  memcpy (r, src, len);
+  r[len] = '\0';
+  return r;
+}
+
+
 /**
  * gen_auth.c logs through MHD_DLOG(), which dereferences the daemon of
  * the connection, so a real (but idle) daemon is required.  It is
@@ -296,6 +318,88 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
   }
 #endif /* BAUTH_SUPPORT */
 
+#ifdef DAUTH_SUPPORT
+  /* The connection-less digest helpers.  They belong here rather than
+     in fuzz_request because they are pure functions of their string
+     arguments: this harness reaches roughly two orders of magnitude
+     more executions per second, and -- more importantly -- it can hand
+     them a username and realm taken straight from the fuzzer instead of
+     the fixed constants fuzz_request has to use.
+
+     Every output buffer is a heap allocation of *exactly* the size
+     declared to MHD, and that size is swept down to zero, so a helper
+     that writes its full digest into a buffer that is too small is
+     caught immediately by ASAN's redzone rather than silently
+     corrupting an adjacent object.  That is precisely the shape of the
+     overflow fixed in commit 5a73c1ae. */
+  if (0 != (sel & 0x02))
+  {
+    /* Exactly one base hashing algorithm per entry.  In particular
+       MHD_DIGEST_AUTH_ALGO3_INVALID must not appear: every one of these
+       helpers routes through digest_get_hash_size(), which asserts that
+       precisely one of MD5 / SHA-256 / SHA-512-256 is named.  Passing
+       INVALID is an API violation on the caller's side, not something
+       worth fuzzing. */
+    static const enum MHD_DigestAuthAlgo3 algo3s[] = {
+      MHD_DIGEST_AUTH_ALGO3_MD5,
+      MHD_DIGEST_AUTH_ALGO3_SHA256,
+      MHD_DIGEST_AUTH_ALGO3_SHA512_256,
+      MHD_DIGEST_AUTH_ALGO3_MD5_SESSION,
+      MHD_DIGEST_AUTH_ALGO3_SHA256_SESSION,
+      MHD_DIGEST_AUTH_ALGO3_SHA512_256_SESSION
+    };
+    enum MHD_DigestAuthAlgo3 a =
+      algo3s[(sel >> 5) % (sizeof (algo3s) / sizeof (algo3s[0]))];
+    size_t hs = MHD_digest_get_hash_size (a);
+
+    /* Split the fuzzer-supplied header value into username / realm /
+       password.  Each gets its OWN exactly-sized allocation rather than
+       being carved out of `value` in place: that way each string is
+       followed by its own ASAN redzone, so a helper reading one byte
+       past the end of the username is reported precisely instead of
+       quietly running into the realm that would follow it in a shared
+       buffer. */
+    size_t o1 = vlen / 3;
+    size_t o2 = (2 * vlen) / 3;
+    char *user = fuzz_dup_n (value, o1);
+    char *realm = fuzz_dup_n (value + o1, o2 - o1);
+    char *pass = fuzz_dup_n (value + o2, vlen - o2);
+
+    if ( (NULL != user) && (NULL != realm) && (NULL != pass) )
+    {
+      if ( (0 != hs) &&
+           (hs <= 64) )
+      {
+        size_t claim = hs - (size_t) (data[0] % (unsigned int) (hs + 1u));
+        void *bin = malloc (claim);
+
+        if (NULL != bin)
+        {
+          (void) MHD_digest_auth_calc_userdigest (a, user, realm, pass,
+                                                  bin, claim);
+          (void) MHD_digest_auth_calc_userhash (a, user, realm, bin, claim);
+          free (bin);
+        }
+      }
+      {
+        size_t need = (0 != hs) ? (2 * hs + 1) : 1;
+        size_t claim = need - (size_t) (data[0] % (unsigned int) (need + 1u));
+        char *hex = (char *) malloc (claim);
+
+        if (NULL != hex)
+        {
+          (void) MHD_digest_auth_calc_userhash_hex (a, user, realm,
+                                                    hex, claim);
+          free (hex);
+        }
+      }
+    }
+    free (user);
+    free (realm);
+    free (pass);
+  }
+#endif /* DAUTH_SUPPORT */
+
   MHD_pool_destroy (pool);
   free (value);
   return 0;
@@ -411,13 +515,34 @@ static const struct ah_seed ah_seeds[] = {
          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\""),
   ASEED ("\x00" "Digest"),
-  ASEED ("\x00" "Digest "),
   ASEED ("\x00" "Digest ,,,,,"),
   ASEED ("\x00" "Digest nc=\"ffffffffffffffffffffffff\""),
   ASEED ("\x01" "Basic dXNlcjpwYXNz"),
   ASEED ("\x01" "Basic "),
   ASEED ("\x01" "Basic ===="),
-  ASEED ("\x01" "Basic QQ==QQ==")
+  ASEED ("\x01" "Basic QQ==QQ=="),
+
+  /* Bit 0x02 of byte 0 additionally runs the connection-less digest
+     helpers (MHD_digest_auth_calc_userdigest/_userhash/_userhash_hex)
+     with the header value split into username / realm / password.  Bits
+     5-7 pick the algorithm and byte 0 also sets the deliberately
+     undersized output-buffer length, so the seeds below cover several
+     algorithms at several buffer sizes.  Without a seed here the branch
+     is only reachable by a lucky bit flip in byte 0.
+
+     The three *_SESSION algorithms are not seeded separately: they hash
+     with the same primitive as their non-session counterpart, so they
+     reach no code the entries below do not, and byte 0 is the byte a
+     mutator flips first anyway. */
+  ASEED ("\x02" "user:TestRealm:pass"),
+  ASEED ("\x22" "user:TestRealm:pass"),
+  ASEED ("\x42" "user:TestRealm:pass"),
+  ASEED ("\xa2" "user:TestRealm:pass"),
+  /* Degenerate splits: empty username, empty realm, empty password. */
+  ASEED ("\x02" "::"),
+  ASEED ("\x02" ""),
+  /* Both the parser and the helpers in one execution. */
+  ASEED ("\x02" "Digest username=\"user\", realm=\"TestRealm\"")
 };
 
 

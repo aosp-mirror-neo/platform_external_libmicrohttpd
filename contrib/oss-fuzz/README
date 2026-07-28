@@ -69,7 +69,12 @@ the corpus packager live here and not in the OSS-Fuzz repository.
 
     fuzz_request            a real struct MHD_Daemon driven over a
                             socketpair; consumes daemon options *and*
-                            stream segmentation from the input
+                            stream segmentation from the input.  Bytes
+                            4-9 (see src/fuzz/README section 2.2.1)
+                            additionally select the response
+                            constructor, the authentication entry point,
+                            the event-loop API, and whether the
+                            connection is suspended or upgraded
     fuzz_str                the mhd_str.c primitives with exactly-sized
                             output buffers
     fuzz_auth_header        MHD_get_rq_dauth_params_() /
@@ -93,8 +98,8 @@ range (-3 and 0), which is what a fuzzing service should explore.
 `max_len` in the `.options` files is set to the point beyond which the
 harness ignores the extra bytes, so libFuzzer does not waste its budget:
 
-    fuzz_request        8192   4 configuration bytes + length-prefixed send
-                               segments (2-byte header, payload <= 0x3FFF,
+    fuzz_request        8192   10 configuration bytes + length-prefixed
+                               send segments (2-byte header, payload <= 0x3FFF,
                                at most 96 segments over at most 8
                                connections).  8 KiB comfortably holds the
                                two-request %%NONCE%% digest handshake, a
@@ -137,7 +142,7 @@ actionable.
         ever stops being wired into configure.ac.
     --enable-asserts
         keeps mhd_assert() alive.  Assertions reachable from network input
-        are remote aborts; findings K1-K6 in `src/fuzz/README` section 6
+        are remote aborts; findings K1-K7 in `src/fuzz/README` section 6
         are all of that kind and are invisible without this.
     --disable-https
         the harnesses never speak TLS (they hand MHD an already-connected
@@ -328,12 +333,20 @@ harnesses, because byte 0 selects a different thing in each, so each zip
 gets only its own prefix.  `src/fuzz/corpus/README` is documentation and
 is excluded.
 
-`src/fuzz/corpus/known-findings/K1..K6*.bin` are byte-exact reproducers
-for the six findings documented in `src/fuzz/README` section 6.  They are
-all `fuzz_request` inputs and are added to that target's seed corpus
+`src/fuzz/corpus/known-findings/K*.bin` are byte-exact reproducers for
+the findings documented in `src/fuzz/README` section 6.  They are all
+`fuzz_request` inputs and are added to that target's seed corpus
 (prefixed `known-finding-`), which is what turns them into permanent
 regression tests: ClusterFuzz keeps every seed in the corpus and replays
 it on every run.
+
+Reproducers of findings that are still *open* are skipped.  A finding is
+open exactly when `patches/$ID.diff` exists (see `patches/README`), and
+its reproducer crashes the target by construction, so shipping it would
+make every ClusterFuzz run open by rediscovering a bug that is already
+written down.  Committing the fix means deleting the diff, and that
+alone promotes the reproducer to a shipped regression seed.  At the time
+of writing this skips K7.
 
 Regenerating the corpus from the harnesses' built-in seeds:
 

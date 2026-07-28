@@ -20,35 +20,85 @@ Files belonging to another harness are simply uninteresting inputs for
 the harness that reads them, so pointing every harness at the whole
 directory is fine and gives some extra cross-pollination.
 
+The set is kept minimal: every seed here adds coverage that no other
+seed provides.  After changing a seed table, re-check that with
+
+    <target> -merge=1 <empty dir> <this directory>
+
+from an OSS-Fuzz style build (contrib/oss-fuzz/build.sh); a seed the
+merge does not copy across is redundant and should be deleted from the
+table rather than left in the corpus.  Note that fuzz_request is
+mildly non-deterministic -- MHD timestamps its nonces and its
+connection timeouts -- so a single merge decision worth ~0.1% of the
+regions is noise; only drop a seed that several independent merges
+agree on.
+
 
 fuzz_request seeds
 ------------------
 
-  00  plain                            GET / with one header
-  01  content-length-body              body oracle, Content-Length
-  02  chunked-with-extensions          body oracle, chunk extensions
+  00  content-length-body              body oracle, Content-Length
+  01  chunked-with-extensions          body oracle, chunk extensions
                                        -> chunk-extension CRLF bug
-  03  chunked-split                    body oracle, chunk boundary split
+  02  chunked-split                    body oracle, chunk boundary split
                                        across two send() calls
-  04  small-pool-trailing-query-arg    128..512 byte connection pool, no
+  03  small-pool-trailing-query-arg    128..512 byte connection pool, no
                                        header lines, "?novalue"
                                        -> read-buffer shift-back bug
-  05  small-pool-trailing-query-arg-2  same with "?a=1&b"
-  06  digest-unknown-algorithm         algorithm=BOGUS
+  04  small-pool-trailing-query-arg-2  same with "?a=1&b"
+  05  digest-unknown-algorithm         algorithm=BOGUS
                                        -> MHD_DIGEST_AUTH_ALGO3_INVALID
                                           MHD_PANIC()
-  07  digest-overlong-response         401 challenge, then a replay on a
+  06  digest-overlong-response         401 challenge, then a replay on a
                                        fresh connection with the
                                        harvested nonce and a 128 hex
                                        digit response=
                                        -> stack buffer overflow
-  08  digest-userhash                  userhash=true with a 128 char
+  07  digest-userhash                  userhash=true with a 128 char
                                        username
-  09  basic-auth                       Authorization: Basic
-  10  multipart-post                   chunked multipart/form-data
-  11  urlencoded-post                  application/x-www-form-urlencoded
-  12  folded-header                    obs-fold continuation line
-  13  pipelined                        two requests in one segment
+  08  basic-auth                       Authorization: Basic
+  09  multipart-post                   chunked multipart/form-data
+  10  urlencoded-post                  application/x-www-form-urlencoded
+  11  folded-header                    obs-fold continuation line
+  12  pipelined                        two requests in one segment
+
+Seeds 00-12 leave the API-selection block (bytes 4-9, see section 2.2.1
+of ../README) zero and only drive the request parser.  Seeds 13-39 each
+switch on one area of it; without them those entry points are reachable
+only by guessing six configuration bytes.
+
+  13  ext-callback-chunked             MHD_SIZE_UNKNOWN content reader,
+                                       response headers and a trailer
+  14  ext-callback-error               known-length reader that fails
+                                       part way through
+  15  ext-fd-response                  MHD_create_response_from_fd()
+  16  ext-fd-at-offset-response        ..._from_fd_at_offset()
+  17  ext-pipe-response                ..._from_pipe()
+  18  ext-iovec-response               ..._from_iovec()
+  19  ext-empty-response-hdrapi        ..._empty() plus get/del header
+                                       and MHD_set_response_options()
+  20  ext-digest-check-digest3         pre-computed userdigest path
+  21  ext-digest-v1-wrappers           MHD_digest_auth_check()
+  22  ext-digest-request-info          MHD_digest_auth_get_request_info3()
+  23  ext-external-event-loop          MHD_get_fdset2()/run_from_select2()
+                                       plus the timeout accessors
+  24  ext-external-event-loop-v1       the v1 fdset/run_from_select pair
+  25  ext-connection-api               every introspection accessor
+  26  ext-suspend-resume               suspend, resume from the pump loop
+  27  ext-suspend-two-connections      two connections parked at once
+  28  ext-upgrade                      101 + MHD_upgrade_action()
+  29  ext-buffer-persistent            buffer/MHD_RESPMEM_PERSISTENT
+  30  ext-buffer-free-callback         ..._with_free_callback()
+  31  ext-from-data                    MHD_create_response_from_data()
+  32  ext-fd64-response                ..._from_fd64()
+  33  ext-basic-auth-v1                MHD_basic_auth_get_username_password()
+  34  ext-basic-auth-challenge         MHD_queue_basic_auth_fail_response()
+  35  ext-basic-auth-challenge-utf8    ..._response3() with UTF-8 charset
+  36  ext-digest-check-digest-v1       MHD_digest_auth_check_digest()
+  37  ext-digest-check-digest2         ..._digest2()  (never with
+                                       MHD_DIGEST_ALG_AUTO, see K8)
+  38  ext-digest-get-username-v1       MHD_digest_auth_get_username()
+  39  ext-digest-get-username3         ..._username3()
 
 fuzz_str seeds
 --------------
@@ -64,7 +114,10 @@ fuzz_auth_header seeds
 
   Well-formed and broken Digest parameter lists (unknown algorithm,
   extended `username*` notation, unterminated quoted strings, empty
-  parameter list, over-long values) plus Basic `token68` variants.
+  parameter list, over-long values) plus Basic `token68` variants, and
+  -- with bit 0x02 of byte 0 -- the connection-less digest helpers at
+  several algorithms and several deliberately undersized output
+  buffers.
 
 fuzz_postprocessor seeds
 ------------------------
@@ -78,34 +131,42 @@ fuzz_postprocessor seeds
 known-findings/
 ---------------
 
-Reproducers for the issues that this suite found in MHD 1.0.7 itself;
-see section 6 of ../README.  K1-K5 are fixed by ../../../patches/B17,
-B19, B20, B21 and B22; K6 is handled separately and is still open.  They
-are deliberately kept out of the main corpus directory so that
-`check-corpus` stays green on an unpatched tree.  Replay one with
+Reproducers for the issues that this suite found in MHD itself; see
+section 6 of ../README, which records the status of each.  K1-K6 are
+fixed on master and therefore replay clean; K7 is open and *aborts* on a
+build configured with --enable-asserts.
+
+They are kept out of the main corpus directory for exactly that reason:
+`check-corpus` does not recurse, so it stays green while an open finding
+still has a live reproducer here.  Replay one with
 
     ./fuzz_request --file=src/fuzz/corpus/known-findings/K1-digest-empty-realm.bin
 
   K1-digest-empty-realm.bin          digestauth.c is_param_equal()
                                      mhd_assert (0 != param->value.len)
-                                     -> patches/B17.diff
   K2-chunkext-no-space.bin           connection.c handle_recv_no_space()
-                                     -> patches/B19.diff
   K3-chunkext-stop-with-error.bin    connection.c
                                      transmit_error_response_len()
-                                     -> patches/B20.diff
   K4a-wsp-first-header.bin           connection.c get_req_header(),
                                      CLIENT_DISCIPLINE_LVL <= -1
-                                     -> patches/B21.diff
   K4b-empty-header-name.bin          connection.c get_req_header(),
                                      CLIENT_DISCIPLINE_LVL <= -2
-                                     -> patches/B21.diff
   K5-bare-cr-keep.bin                connection.c get_req_header(),
                                      CLIENT_DISCIPLINE_LVL == -3
-                                     -> patches/B22.diff
   K6-nonce-length-collision.bin      digestauth.c check_nonce_nc()
                                      mhd_assert (0 == nn->nonce[noncelen])
-                                     -> still open
+  K7-upgrade-after-must-close.bin    connection.c build_header_response()
+                                     mhd_assert (upgrade -> MUST_UPGRADE)
+                                     *** still open, see ../../../patches ***
 
-Once a patch has landed, move the corresponding file into the main
-corpus directory so that `check-corpus` keeps it as a regression seed.
+These files are *not* regenerated by `--write-corpus`; they are edited by
+hand.  When the input format changes they have to be migrated, and the
+migration has to be checked -- replay each one with `--verbose` before
+and after and confirm the daemon, handler, body and challenge counts are
+unchanged.  The last such change made the API-selection block
+unconditional, which is six zero bytes inserted at offset 4 for all
+seven.
+
+K8 has no reproducer here: its trigger is an argument the application
+chooses, not network input, so the harness never performs it.  See
+section 6 of ../README for how to reach it by hand.

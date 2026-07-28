@@ -190,7 +190,9 @@ make -C src/fuzz check-corpus
   50000 iterations per harness, roughly 3 seconds in total under
   ASAN+UBSAN.  The findings K1-K6 of `README` section 6 are all fixed on
   master, so the full range is clean; their reproducers stay in
-  `corpus/known-findings/` as regressions.
+  `corpus/known-findings/` as regressions.  K7 is open, and its
+  reproducer lives there too — `check-corpus` does not recurse into that
+  directory, which is what keeps `make check` green while it is.
 
 ---
 
