@@ -1735,7 +1735,7 @@ try_ready_chunked_body (struct MHD_Connection *connection,
                                       chunk_hdr,
                                       sizeof(chunk_hdr));
   mhd_assert (chunk_hdr_len != 0);
-  mhd_assert (chunk_hdr_len < sizeof(chunk_hdr));
+  mhd_assert (chunk_hdr_len <= sizeof(chunk_hdr));
   *p_finished = false;
   connection->write_buffer_send_offset =
     (max_chunk_hdr_len - (chunk_hdr_len + 2));
