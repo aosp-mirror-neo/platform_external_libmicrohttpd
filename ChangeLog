@@ -1,3 +1,9 @@
+Tue Jul 28 06:12:03 PM CEST 2026
+    Fixing additional vulnerabilities inspired by reviewing the
+    code for similar issues like the ones reported by A. Ramos;
+    expand the test suite to cover these and other issues.
+    Releasing GNU libmicrohttpd 1.0.8. -CG
+
 Mon Jul 27 06:12:03 PM CEST 2026
     Fixing various vulnerabilities reported by A. Ramos resulting
     in possible crashes or out-of-bounds stack writes for certain

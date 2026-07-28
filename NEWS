@@ -1,3 +1,11 @@
+Tue Jul 28 06:13:26 PM CEST 2026
+Released GNU libmicrohttpd 1.0.8.
+
+    This is a bugfix release, fixing minor security vulnerabilities
+    and expanding the test suite.
+
+    -- Christian Grothoff
+
 Mon Jul 27 06:13:26 PM CEST 2026
 Released GNU libmicrohttpd 1.0.7.
 
