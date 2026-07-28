@@ -3579,8 +3579,15 @@ handle_recv_no_space (struct MHD_Connection *c,
     return;
   case MHD_PROC_RECV_BODY_NORMAL:
   case MHD_PROC_RECV_BODY_CHUNKED:
+    /* The 'some_payload_processed' flag reflects the *last* application
+       callback only.  After that callback more data may have been received
+       from the network, in particular a chunk-size line with a chunk
+       extension that does not fit into the read buffer.  Therefore the flag
+       alone does not imply that free space is available; it does so only as
+       long as unprocessed payload is still sitting in the buffer. */
     mhd_assert ((MHD_PROC_RECV_BODY_CHUNKED != stage) || \
-                ! c->rq.some_payload_processed);
+                (! c->rq.some_payload_processed) || \
+                (! has_unprocessed_upload_body_data_in_buffer (c)));
     if (has_unprocessed_upload_body_data_in_buffer (c))
     {
       /* The connection must not be in MHD_EVENT_LOOP_INFO_READ state
