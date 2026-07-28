@@ -2684,6 +2684,9 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
   else if ((NULL != params->username.value.str) &&
            (NULL != params->username_ext.value.str))
     return MHD_DAUTH_WRONG_USERNAME; /* Parameters cannot be used together */
+  else if ((NULL != params->username.value.str) &&
+           (0 == params->username.value.len))
+    return MHD_DAUTH_WRONG_USERNAME;  /* Empty username */
   else if ((NULL != params->username_ext.value.str) &&
            (MHD_DAUTH_EXT_PARAM_MIN_LEN > params->username_ext.value.len))
     return MHD_DAUTH_WRONG_USERNAME;  /* Broken extended notation */
@@ -2696,6 +2699,8 @@ digest_auth_check_all_inner (struct MHD_Connection *connection,
 
   if (NULL == params->realm.value.str)
     return MHD_DAUTH_WRONG_REALM;
+  else if (0 == params->realm.value.len)
+    return MHD_DAUTH_WRONG_REALM;  /* Empty realm */
   else if (((NULL == userdigest) || params->userhash) &&
            (_MHD_AUTH_DIGEST_MAX_PARAM_SIZE < params->realm.value.len))
     return MHD_DAUTH_TOO_LARGE; /* Realm is too large and should be used in hash calculations */
