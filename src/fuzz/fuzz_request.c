@@ -1518,18 +1518,18 @@ ahc (void *cls,
      application performs, and all three inputs come off the wire, so
      the path stays fully attacker-driven.
 
-     It is deliberately NOT enough to keep MHD's
+     It is deliberately NOT enough to predict whether MHD will accept
+     the upgrade, and it is not meant to be: MHD may have decided during
+     header parsing that the connection must close, and does not expose
+     that decision.  That used to trip
      mhd_assert (NULL == r->upgrade_handler ||
                  MHD_CONN_MUST_UPGRADE == c->keepalive)
-     in build_header_response() satisfied, and it is not meant to be:
-     MHD may have decided during header parsing that the connection must
-     close, and does not expose that decision.  That is finding K7 (see
-     README section 6); corpus/known-findings/K7-upgrade-after-must-close.bin
-     is the reproducer, and patches/K7.diff turns the abort into the
-     MHD_NO that the code below already handles.  Do not "fix" this by
-     weakening the condition here -- the check above is what an
-     application can actually do, and the harness has to behave like
-     one. */
+     in build_header_response() -- finding K7, see README section 6,
+     reproducer corpus/known-findings/K7-upgrade-after-must-close.bin --
+     and MHD_queue_response() now returns MHD_NO for it instead, which
+     the code below already handles.  Do not "fix" this by tightening
+     the condition here: the check above is what an application can
+     actually do, and the harness has to behave like one. */
   if (cfg.allow_upgrade &&
       (NULL != version) &&
       (0 == strcmp (version, MHD_HTTP_VERSION_1_1)) &&

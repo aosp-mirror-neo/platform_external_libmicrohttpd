@@ -188,11 +188,12 @@ make -C src/fuzz check-corpus
 * `make check` in `src/fuzz` runs the full discipline / memory-limit
   range (`MHD_FUZZ_MIN_DISCIPLINE=-3`, `MHD_FUZZ_MIN_MEM_LIMIT=0`) with
   50000 iterations per harness, roughly 3 seconds in total under
-  ASAN+UBSAN.  The findings K1-K6 of `README` section 6 are all fixed on
+  ASAN+UBSAN.  The findings K1-K8 of `README` section 6 are all fixed on
   master, so the full range is clean; their reproducers stay in
-  `corpus/known-findings/` as regressions.  K7 is open, and its
-  reproducer lives there too — `check-corpus` does not recurse into that
-  directory, which is what keeps `make check` green while it is.
+  `corpus/known-findings/`, and `make check-corpus` replays that
+  directory alongside the generated corpus.  Both only mean anything on a
+  tree configured with `--enable-asserts`: most of those reproducers trip
+  an `mhd_assert()`, which compiles away without it.
 
 ---
 
@@ -257,5 +258,5 @@ Two consequences for anyone editing `src/fuzz/`:
 `contrib/oss-fuzz/` also relies on two things this directory provides:
 `make -C src/fuzz refresh-corpus` (to regenerate `corpus/`) and the
 `corpus/known-findings/` reproducers, which it packages into
-`fuzz_request_seed_corpus.zip` so that K1–K6 become permanent
+`fuzz_request_seed_corpus.zip` so that they become permanent
 regressions.  It is deliberately **not** part of `contrib/ci/jobs/`.

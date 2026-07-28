@@ -115,10 +115,27 @@ refresh-corpus: $(check_PROGRAMS)
 
 # Replay the whole on-disk corpus through every harness; this is what a
 # CI regression run should do after a crash has been fixed.
+#
+# corpus/known-findings/ is listed separately because --corpus-dir does
+# not recurse.  It holds the reproducers of the findings in README
+# section 6; all of them are fixed, so anything failing there is a
+# regression.  The one intended exception is a reproducer committed while
+# its finding is still open: that fails here until the fix lands, which
+# is what a regression test for an unfixed bug is supposed to do.
+#
+# Note that these only bite on a tree configured with --enable-asserts;
+# without it mhd_assert() compiles away and most of these reproducers
+# pass whether MHD is fixed or not.
+CORPUS_DIRS = \
+  $(srcdir)/corpus \
+  $(srcdir)/corpus/known-findings
+
 .PHONY: check-corpus
 check-corpus: $(check_PROGRAMS)
 	for p in $(check_PROGRAMS) ; do \
-	  MHD_FUZZ_MIN_DISCIPLINE="$(MHD_FUZZ_MIN_DISCIPLINE)" \
-	  MHD_FUZZ_MIN_MEM_LIMIT="$(MHD_FUZZ_MIN_MEM_LIMIT)" \
-	    ./$$p --corpus-dir=$(srcdir)/corpus || exit 1 ; \
+	  for d in $(CORPUS_DIRS) ; do \
+	    MHD_FUZZ_MIN_DISCIPLINE="$(MHD_FUZZ_MIN_DISCIPLINE)" \
+	    MHD_FUZZ_MIN_MEM_LIMIT="$(MHD_FUZZ_MIN_MEM_LIMIT)" \
+	      ./$$p --corpus-dir=$$d || exit 1 ; \
+	  done ; \
 	done

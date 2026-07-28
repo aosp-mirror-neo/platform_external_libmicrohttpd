@@ -64,14 +64,17 @@ for fuzzer in ${FUZZERS}; do
 
   # The K* reproducers are fuzz_request inputs.
   #
-  # Only the ones whose defect is already fixed are shipped.  A finding
-  # that is still open has an unapplied fix in patches/$ID.diff (see
-  # patches/README), and its reproducer, by construction, crashes the
-  # target: shipping it would make every ClusterFuzz run start by
+  # Only the ones whose defect is already fixed are shipped.  While a
+  # finding is open its proposed fix is kept as an unapplied diff in
+  # patches/$ID.diff, and its reproducer crashes the target by
+  # construction; shipping it would make every ClusterFuzz run start by
   # rediscovering a bug that is already written down, and bury the
-  # findings that are actually new.  Deleting the diff -- which is what
-  # committing the fix should do -- promotes the reproducer to a
-  # permanent regression seed here, with no further edit.
+  # findings that are actually new.  Committing the fix deletes the diff,
+  # and that alone promotes the reproducer to a permanent regression seed
+  # here, with no further edit.
+  #
+  # patches/ therefore does not exist while nothing is open, which is the
+  # normal state; the test below simply never fires then.
   if [ "${fuzzer}" = "fuzz_request" ] && [ -d "${FINDINGS}" ]; then
     for f in "${FINDINGS}"/*.bin; do
       [ -f "${f}" ] || continue

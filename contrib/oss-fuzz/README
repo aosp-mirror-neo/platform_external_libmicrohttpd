@@ -341,12 +341,14 @@ regression tests: ClusterFuzz keeps every seed in the corpus and replays
 it on every run.
 
 Reproducers of findings that are still *open* are skipped.  A finding is
-open exactly when `patches/$ID.diff` exists (see `patches/README`), and
-its reproducer crashes the target by construction, so shipping it would
-make every ClusterFuzz run open by rediscovering a bug that is already
-written down.  Committing the fix means deleting the diff, and that
-alone promotes the reproducer to a shipped regression seed.  At the time
-of writing this skips K7.
+open exactly when `patches/$ID.diff` exists, and its reproducer crashes
+the target by construction, so shipping it would make every ClusterFuzz
+run open by rediscovering a bug that is already written down.  Committing
+the fix means deleting the diff, and that alone promotes the reproducer
+to a shipped regression seed.
+
+Nothing is open at the time of writing, so `patches/` does not exist and
+all eight reproducers ship.
 
 Regenerating the corpus from the harnesses' built-in seeds:
 

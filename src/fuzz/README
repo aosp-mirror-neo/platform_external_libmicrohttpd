@@ -202,11 +202,13 @@ violating either makes MHD abort on input that is perfectly legal:
     header naming the upgrade token and not "close").  All three come
     off the wire, so the path stays attacker-driven.
 
-    Unlike the suspend rule, this one is not sufficient, and is not
-    supposed to be: it is exactly the check a real application can
-    perform, and a request that passes it can still abort MHD.  That is
-    finding K7 in section 6.  Do not tighten it further to keep the
-    suite green -- the point is that an application cannot do better.
+    This is exactly the check a real application can perform, and no
+    more.  It deliberately does not try to predict whether MHD will
+    accept the upgrade: a request that passes it used to abort MHD, which
+    is finding K7 in section 6, and MHD_queue_response() now answers
+    MHD_NO for that case instead.  Do not tighten the condition to keep
+    the suite green -- an application cannot do better than this, so
+    neither should the harness.
 
 The message-framing headers (Content-Length, Transfer-Encoding) are
 deliberately absent from the response-header table: MHD generates them
@@ -529,7 +531,8 @@ K6  digestauth.c:860  check_nonce_nc():
 K7  connection.c:2596  build_header_response():
         mhd_assert ((NULL == r->upgrade_handler) ||
                     (MHD_CONN_MUST_UPGRADE == c->keepalive))
-    Open.  Driven entirely from the wire, with default daemon options.
+    Fixed by commit acef58a0.  Was driven entirely from the wire, with
+    default daemon options.
 
     While parsing the request headers, connection.c sets
         c->keepalive = MHD_CONN_MUST_CLOSE
@@ -565,9 +568,10 @@ K7  connection.c:2596  build_header_response():
     default-configured server, which is a good deal worse than the
     "application misuse" it first looked like.
 
-    Fix: patches/K7.diff, which rejects the response in
-    MHD_queue_response() next to the other upgrade preconditions, so the
-    application gets MHD_NO instead of an abort.
+    The fix rejects the response in MHD_queue_response()
+    (connection.c:8338) next to the other upgrade preconditions, so the
+    application gets MHD_NO -- which it already has to handle -- instead
+    of an abort.
     Repro: corpus/known-findings/K7-upgrade-after-must-close.bin
         GET / HTTP/1.1
         Host: x
@@ -580,8 +584,9 @@ K7  connection.c:2596  build_header_response():
 K8  digestauth.c  MHD_digest_auth_check_digest2():
         MHD_PANIC ("Wrong 'malgo3' value, only one base hashing
                     algorithm ... must be specified, API violation")
-    Open.  An API-contract defect rather than a parsing bug: unlike K7
-    the offending argument comes from the application, not the network.
+    Fixed by commit 07c051dd.  An API-contract defect rather than a
+    parsing bug: unlike K7 the offending argument came from the
+    application, not from the network.
 
     MHD_DIGEST_ALG_AUTO is a documented member of
     enum MHD_DigestAuthAlgorithm, and the `algo` parameter of
@@ -605,26 +610,41 @@ K8  digestauth.c  MHD_digest_auth_check_digest2():
     because the digest length does not identify the algorithm (SHA-256
     and SHA-512/256 digests are both 32 bytes).
 
-    Fix: patches/K8.diff, which documents the restriction in
-    microhttpd.h and returns MHD_NO instead of aborting.
+    The fix documents the restriction in microhttpd.h and returns MHD_NO
+    instead of aborting.  AUTO is left unusable with the
+    pre-computed-digest entry points, deliberately: there is nothing to
+    map it to.
     Repro: none committed.  The argument is the application's, so the
     harness never passes AUTO there (see run_digest_check() in
     fuzz_request.c); to see it, change the MHD_DIGEST_ALG_* argument of
     the variant-4 call to MHD_DIGEST_ALG_AUTO and replay
-    corpus/fuzz_request-36.bin.
+    corpus/fuzz_request-37.bin.
 
 Status
 ------
 
-K1-K5 are fixed on master by commits 300a2ab0, 68c83f22, e04eb218,
-0b750975 and 6fcdfd43 respectively; K6 by f438804c.  Their seven
-reproducers in `corpus/known-findings/` therefore replay clean, and
-`make check-corpus` asserts exactly that.
+All eight findings are fixed on master:
 
-K7 and K8 are open, and their fixes are unapplied diffs in
-`../../patches/`.  K7 has a reproducer, which aborts on an
-`--enable-asserts` build and passes with patches/K7.diff applied; K8 has
-none, because its trigger is an argument the application chooses.
+    K1  300a2ab0     K4a 0b750975     K7  acef58a0
+    K2  68c83f22     K4b 0b750975     K8  07c051dd
+    K3  e04eb218     K5  6fcdfd43
+                     K6  f438804c
+
+The eight reproducers in `corpus/known-findings/` therefore all replay
+clean on a build configured with `--enable-asserts`, and
+`make check-corpus` asserts exactly that -- it replays that directory
+along with the generated corpus.  K8 has no reproducer, because its
+trigger is an argument the application chooses rather than anything that
+comes off the wire.
+
+When the next finding is opened, its reproducer goes into
+`corpus/known-findings/` and will make `make check-corpus` fail until the
+fix lands.  That is the intended behaviour: it is the same arrangement as
+the `XFAIL_TESTS` entries in `src/microhttpd/Makefile.am`, except that
+here the expectation is not encoded, so the commit that adds a live
+reproducer should say so.  `contrib/oss-fuzz/make_seed_corpus.sh` has to
+skip such a reproducer as well, or every ClusterFuzz run starts by
+rediscovering it; see the comment there.
 
 The `make check` defaults in Makefile.am
 
