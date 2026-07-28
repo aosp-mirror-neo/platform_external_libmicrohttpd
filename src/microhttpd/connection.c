@@ -3466,6 +3466,7 @@ handle_req_chunk_size_line_no_space (struct MHD_Connection *c,
       transmit_error_response_static (c,
                                       MHD_HTTP_CONTENT_TOO_LARGE,
                                       ERR_MSG_REQUEST_CHUNK_LINE_EXT_TOO_BIG);
+      return; /* The error response has been queued already */
     }
   }
   err_code = get_no_space_err_status_code (c,
