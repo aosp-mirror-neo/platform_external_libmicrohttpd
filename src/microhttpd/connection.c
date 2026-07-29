@@ -6723,6 +6723,16 @@ get_req_headers (struct MHD_Connection *c, bool process_footers)
       {
         last_elmnt_end = c->rq.version + HTTP_VER_LEN;
       }
+      /* The request line strings (method, url, version) remain visible to
+         the application for the whole request, and the last received header
+         is not necessarily above them: when it is not, reclaiming down to
+         the header end puts the read buffer on top of the version string,
+         and the next recv() overwrites the terminator the application is
+         about to read through.  Never reclaim below the end of the request
+         line. */
+      if ((NULL != c->rq.version) &&
+          (last_elmnt_end < c->rq.version + HTTP_VER_LEN))
+        last_elmnt_end = c->rq.version + HTTP_VER_LEN;
       /* Check that @a last_elmnt_end points into the request that has
          just been parsed, which lives entirely
          between the start of the request line and the current read buffer
