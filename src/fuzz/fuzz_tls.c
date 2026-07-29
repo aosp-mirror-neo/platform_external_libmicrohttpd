@@ -36,6 +36,11 @@
  *    blobs, mismatched key/certificate pairs, bogus priority strings,
  *    credential types MHD does not support, and an SNI callback that
  *    fails or answers with garbage;
+ *  - the pre-shared key path: #MHD_OPTION_GNUTLS_PSK_CRED_HANDLER and
+ *    @c psk_gnutls_adapter(), which is the one place where MHD takes a
+ *    buffer straight from an application callback and hands it to
+ *    GnuTLS.  See the "TLS-PSK" note below for why one input bit turns
+ *    the whole scenario on rather than four independent ones;
  *  - the handshake state machine of connection_https.c
  *    (#MHD_TLS_CONN_INIT -> HANDSHAKING -> CONNECTED / TLS_FAILED) and
  *    what MHD does when the handshake fails, is abandoned half way, or
@@ -80,9 +85,14 @@
  *            bits 4-5 client priority string selector
  *            bit  6   gnutls_bye() before closing
  *            bit  7   shutdown(SHUT_WR) before closing
- *   byte 5   low nibble  MHD_OPTION_CONNECTION_MEMORY_LIMIT selector
- *            high nibble event loop: MHD_run() vs MHD_get_fdset*() +
- *                        MHD_run_from_select*()
+ *   byte 5   bits 0-3 MHD_OPTION_CONNECTION_MEMORY_LIMIT selector
+ *            bits 4-5 event loop: MHD_run() vs MHD_get_fdset*() +
+ *                     MHD_run_from_select*()
+ *            bit  6   hand the daemon one more connection at the very
+ *                     end and stop it without running the loop again,
+ *                     so that a TLS session is torn down for a
+ *                     connection MHD never started
+ *            bit  7   unused
  *   byte 6   handler behaviour and introspection
  *              bits 0-1 response constructor
  *              bit  2   MHD_get_connection_info() for the TLS members
@@ -99,7 +109,14 @@
  *   byte 8   how many bytes of the segment stream are spliced into the
  *            fuzzer-built PEM blobs (see cred_tbl entries 12 and 13)
  *   byte 9   bits 0-2 the server name the client presents, as an index
- *            into a small built-in table; an op 1 segment overrides it
+ *            into a small built-in table; an op 1 segment overrides it.
+ *            In the TLS-PSK scenario that same string is also the PSK
+ *            identity the client sends, so an op 1 segment gives byte
+ *            level control over the @a username that reaches
+ *            psk_gnutls_adapter()
+ *            bits 3-5 behaviour of the PSK credentials callback
+ *            bit  6   the client offers PSK credentials
+ *            bit  7   run the TLS-PSK scenario (see below)
  *   byte 10. a sequence of segments, each introduced by a little-endian
  *            16 bit header  (op << 14) | length
  *              op 0  send the payload
@@ -120,6 +137,30 @@
  * it replays a fuzz_tls seed.  That is what byte 9 is for.  Inputs the
  * generator or a mutator produces may use op 1 freely -- they never end
  * up in `corpus/`.
+ *
+ * TLS-PSK.  Reaching psk_gnutls_adapter() needs four unrelated things to
+ * be true at the same time: the daemon's credential type has to be
+ * #GNUTLS_CRD_PSK, both ends need a priority string that actually has a
+ * PSK key exchange in it ("NORMAL" does not), the daemon needs
+ * #MHD_OPTION_GNUTLS_PSK_CRED_HANDLER, and the client has to offer a PSK
+ * identity.  Spread over four independent input bits that combination
+ * comes up once in a few hundred thousand inputs, and an 8 hour campaign
+ * duly left the function at zero coverage.  Bit 7 of byte 9 therefore
+ * switches the whole scenario on at once and the remaining PSK bits only
+ * choose between its variants.
+ *
+ * The variants are the branches of psk_gnutls_adapter() itself: the
+ * callback is missing, fails, or answers 0 with a key of a workable
+ * size, of 4 KiB, of zero size, of one byte less than the
+ * @c MHD_PSK_MIN_SIZE the adapter enforces, and of a size that exceeds
+ * @c UINT_MAX.  The two undersized ones and #PSK_OK bracket that
+ * minimum from both sides -- #PSK_OK is exactly @c MHD_PSK_MIN_SIZE
+ * bytes -- which is what makes an off-by-one in the check visible.
+ *
+ * One behaviour is deliberately *not* offered: answering 0 without
+ * writing the two output parameters.  MHD would then read uninitialised
+ * memory, but the application has broken the documented contract, so a
+ * report from that would be a harness bug rather than an MHD bug.
  *
  * The certificates and keys are the ones from
  * `src/testcurl/https/tls_test_keys.h` (the CA certificate, the
@@ -491,6 +532,28 @@ static const char *const client_prio_tbl[CLIENT_PRIO_COUNT] = {
 };
 
 /**
+ * Priority strings for the TLS-PSK scenario, used on both ends.
+ * "NORMAL" carries no PSK key exchange, so without one of these the
+ * ciphersuite is never negotiated, GnuTLS never asks the server for a
+ * key, and psk_gnutls_adapter() is never called.  Index is the client
+ * priority selector (byte 4, bits 4-5), which the ordinary tables no
+ * longer use once the scenario is on.
+ *
+ * The TLS 1.2 entry has to remove the other key exchanges explicitly.
+ * A daemon with #GNUTLS_CRD_PSK has no certificate credentials, so with
+ * the certificate key exchanges still in the list the TLS 1.2 handshake
+ * dies with "received handshake message out of context" before GnuTLS
+ * ever asks for a key.  Under TLS 1.3 the same list is fine, which is
+ * what entries 0 and 2 cover.
+ */
+static const char *const psk_prio_tbl[CLIENT_PRIO_COUNT] = {
+  "NORMAL:+ECDHE-PSK:+DHE-PSK:+PSK",
+  "NORMAL:-VERS-ALL:+VERS-TLS1.2:-KX-ALL:+ECDHE-PSK:+DHE-PSK:+PSK",
+  "NORMAL:-VERS-ALL:+VERS-TLS1.3:+ECDHE-PSK:+DHE-PSK:+PSK",
+  "NORMAL:-KX-ALL:+ECDHE-PSK:+DHE-PSK:+PSK"
+};
+
+/**
  * Credential types.  Only GNUTLS_CRD_CERTIFICATE and GNUTLS_CRD_PSK are
  * accepted by MHD_TLS_init(); everything else must make daemon startup
  * fail rather than reach the MHD_PANIC() in new_connection_prepare_().
@@ -507,6 +570,27 @@ static const int cred_type_tbl[] = {
 };
 
 #define CRED_TYPE_COUNT (sizeof (cred_type_tbl) / sizeof (cred_type_tbl[0]))
+
+/** Index of #GNUTLS_CRD_PSK in #cred_type_tbl. */
+#define PSK_CRED_TYPE_IDX 1u
+
+/**
+ * The pre-shared key the client uses, and the one #PSK_OK hands back.
+ * They match, so that variant completes the handshake and MHD goes on to
+ * serve ordinary HTTP over a session with no certificate at all -- which
+ * is a different shape again for the connection introspection calls.
+ *
+ * Its length is exactly the @c MHD_PSK_MIN_SIZE that psk_gnutls_adapter()
+ * enforces (16, RFC 4279 section 7.1).  That is not a coincidence and
+ * the two have to be kept in step: #PSK_OK and #PSK_ONE_SHORT bracket
+ * the check from both sides, and #PSK_ONE_SHORT derives its length from
+ * this array.  The minimum is private to daemon.c, so this is a mirror
+ * rather than a shared constant; if daemon.c changes, so must this.
+ */
+static const unsigned char psk_key_bytes[16] = {
+  0x9e, 0x1d, 0x4c, 0x7b, 0x30, 0xa5, 0xf2, 0x68,
+  0x11, 0xc3, 0x54, 0xd9, 0x87, 0x2a, 0x6f, 0xb0
+};
 
 static const size_t mem_limit_tbl[] = {
   0 /* MHD default */, 256, 512, 1024, 1400, 1500, 2048, 4096, 8192, 32768,
@@ -535,6 +619,28 @@ enum sni_behaviour
   SNI_BEHAVIOUR_COUNT
 };
 
+/**
+ * Behaviour of the PSK credentials callback, selected by bits 3-5 of
+ * byte 9.  Each entry corresponds to one branch of psk_gnutls_adapter().
+ */
+enum psk_behaviour
+{
+  PSK_OK = 0,             /**< the key the client expects; handshake works */
+  PSK_FAIL,               /**< the callback answers -1 */
+  PSK_EMPTY,              /**< a zero length key: rejected as too short */
+  PSK_LONG,               /**< a 4 KiB key */
+  PSK_FROM_ID,            /**< key built from the identity the client sent,
+                               so its length is attacker-chosen and lands
+                               on either side of MHD_PSK_MIN_SIZE */
+  PSK_HUGE,               /**< a size above UINT_MAX */
+  PSK_NO_HANDLER,         /**< the option is not passed at all */
+  /* Appended rather than grouped with PSK_EMPTY on purpose: the seeds
+     below encode the behaviour as a literal index, so inserting in the
+     middle would silently re-point every one of them. */
+  PSK_ONE_SHORT,          /**< MHD_PSK_MIN_SIZE - 1 bytes: the boundary */
+  PSK_BEHAVIOUR_COUNT
+};
+
 /** Client behaviour, selected by bits 0-1 of byte 4. */
 enum client_mode
 {
@@ -558,6 +664,7 @@ struct fuzz_cfg
   int use_prio;
   int prio_append;
   unsigned int prio_idx;
+  const char *prio_str;        /**< what use_prio actually passes */
   int use_cred_type;
   unsigned int cred_type_idx;
   int no_alpn;
@@ -569,10 +676,15 @@ struct fuzz_cfg
   /* ---- SNI callback ---- */
   enum sni_behaviour sni_mode;
 
+  /* ---- TLS-PSK ---- */
+  int psk_scenario;            /**< the whole PSK bundle is on */
+  enum psk_behaviour psk_mode;
+
   /* ---- client ---- */
   enum client_mode mode;
   int client_sni;
   int client_cert;
+  int client_psk;              /**< offer PSK credentials */
   unsigned int client_prio_idx;
   int client_bye;
   int client_shut_wr;
@@ -587,6 +699,7 @@ struct fuzz_cfg
   int error_reply;
   int resp_header;
   int quiesce;
+  int stop_with_queued;        /**< stop with a connection still queued */
 };
 
 static struct fuzz_cfg cfg;
@@ -626,6 +739,7 @@ static unsigned long stat_handshakes_ok;
 static unsigned long stat_handshakes_failed;
 static unsigned long stat_handler_calls;
 static unsigned long stat_sni_calls;
+static unsigned long stat_psk_calls;
 static int stats_registered;
 
 
@@ -636,11 +750,12 @@ print_stats (void)
     return;
   fprintf (stderr,
            "%s: daemons=%lu (start failed=%lu) connections=%lu "
-           "handshakes ok=%lu failed=%lu handler calls=%lu SNI calls=%lu\n",
+           "handshakes ok=%lu failed=%lu handler calls=%lu SNI calls=%lu "
+           "PSK calls=%lu\n",
            FUZZ_HARNESS_NAME,
            stat_daemons, stat_daemons_failed, stat_connections,
            stat_handshakes_ok, stat_handshakes_failed, stat_handler_calls,
-           stat_sni_calls);
+           stat_sni_calls, stat_psk_calls);
 }
 
 
@@ -977,6 +1092,110 @@ run_once (struct MHD_Daemon *d)
 
 
 /* ------------------------------------------------------------------ */
+/* The PSK credentials callback                                        */
+/* ------------------------------------------------------------------ */
+
+#if GNUTLS_VERSION_MAJOR >= 3
+
+/**
+ * #MHD_OPTION_GNUTLS_PSK_CRED_HANDLER.  GnuTLS calls
+ * psk_gnutls_adapter() with the identity the client sent, and that
+ * function calls this; whatever comes back is copied into a
+ * gnutls_malloc()ed buffer and handed to GnuTLS, with @a psk freed by
+ * MHD on every path.  The buffer therefore has to come from plain
+ * malloc() -- see the doxygen on #MHD_PskServerCredentialsCallback.
+ *
+ * @param cls unused
+ * @param connection the connection GnuTLS is handshaking
+ * @param username the identity claimed by the client
+ * @param[out] psk the key
+ * @param[out] psk_size its length
+ * @return 0 on success, -1 on error
+ */
+static int
+psk_cred_cb (void *cls,
+             const struct MHD_Connection *connection,
+             const char *username,
+             void **psk,
+             size_t *psk_size)
+{
+  unsigned char *buf;
+  size_t len;
+
+  (void) cls;
+  (void) connection;
+  stat_psk_calls++;
+
+  switch (cfg.psk_mode)
+  {
+  case PSK_FAIL:
+    return -1;
+  case PSK_EMPTY:
+    len = 0;
+    break;
+  case PSK_ONE_SHORT:
+    /* One byte below the minimum the adapter enforces.  Deliberately
+       written in terms of sizeof (psk_key_bytes), which is exactly that
+       minimum, so this stays on the boundary if the minimum changes. */
+    len = sizeof (psk_key_bytes) - 1;
+    break;
+  case PSK_LONG:
+    len = 4096;
+    break;
+  case PSK_FROM_ID:
+    len = (NULL != username) ? strlen (username) : 0;
+    if (len > 1024)
+      len = 1024;
+    break;
+  case PSK_HUGE:
+#if SIZE_MAX > UINT_MAX
+    /* The size MHD is told about, not the size allocated: the point is
+       the "PSK too long" branch, which rejects before reading @a psk.
+       MHD still free()s the pointer, so it has to be a real one. */
+    buf = (unsigned char *) malloc (1);
+    if (NULL == buf)
+      return -1;
+    buf[0] = 0;
+    *psk = buf;
+    *psk_size = (size_t) UINT_MAX + 1u;
+    return 0;
+#else
+    len = sizeof (psk_key_bytes);
+    break;
+#endif
+  case PSK_OK:
+  case PSK_NO_HANDLER:  /* not reached: the option is not passed at all */
+  case PSK_BEHAVIOUR_COUNT:
+  default:
+    len = sizeof (psk_key_bytes);
+    break;
+  }
+
+  /* malloc(0) may answer NULL, which would be indistinguishable from
+     failure here; always ask for at least one byte and report the length
+     separately. */
+  buf = (unsigned char *) malloc (0 != len ? len : 1);
+  if (NULL == buf)
+    return -1;
+  if (0 != len)
+  {
+    size_t i;
+
+    for (i = 0; i < len; i++)
+      buf[i] = psk_key_bytes[i % sizeof (psk_key_bytes)];
+  }
+  else
+    buf[0] = 0;
+  *psk = buf;
+  *psk_size = len;
+  return 0;
+}
+
+
+#endif /* GNUTLS_VERSION_MAJOR >= 3 */
+
+
+/* ------------------------------------------------------------------ */
 /* The in-process TLS client                                           */
 /* ------------------------------------------------------------------ */
 
@@ -984,6 +1203,7 @@ struct tls_client
 {
   gnutls_session_t sess;                    /**< NULL in the raw modes */
   gnutls_certificate_credentials_t cred;
+  gnutls_psk_client_credentials_t psk;      /**< only in the PSK scenario */
   int fd;                                   /**< our end of the socketpair */
   int hs_done;
   int dead;
@@ -1195,12 +1415,41 @@ tc_open (struct MHD_Daemon *d,
   }
   if (GNUTLS_E_SUCCESS !=
       gnutls_priority_set_direct (tc->sess,
-                                  client_prio_tbl[cfg.client_prio_idx],
+                                  cfg.psk_scenario
+                                  ? psk_prio_tbl[cfg.client_prio_idx]
+                                  : client_prio_tbl[cfg.client_prio_idx],
                                   NULL))
     (void) gnutls_priority_set_direct (tc->sess, "NORMAL", NULL);
   if (GNUTLS_E_SUCCESS !=
       gnutls_credentials_set (tc->sess, GNUTLS_CRD_CERTIFICATE, tc->cred))
     tc->dead = 1;
+  if (cfg.client_psk)
+  {
+    /* The identity is the same string byte 9 (or an op 1 segment) picked
+       for SNI; it is what arrives as @a username in psk_gnutls_adapter().
+       A client that offers no PSK credentials at all against a PSK-only
+       server is the other half of this: the handshake then fails without
+       the adapter ever being asked. */
+    gnutls_datum_t k;
+
+    k.data = (unsigned char *) (intptr_t) psk_key_bytes;
+    k.size = (unsigned int) sizeof (psk_key_bytes);
+    if (GNUTLS_E_SUCCESS !=
+        gnutls_psk_allocate_client_credentials (&tc->psk))
+      tc->psk = NULL;
+    else
+    {
+      if (GNUTLS_E_SUCCESS !=
+          gnutls_psk_set_client_credentials (tc->psk,
+                                             sni_name,
+                                             &k,
+                                             GNUTLS_PSK_KEY_RAW))
+        tc->dead = 1;
+      else if (GNUTLS_E_SUCCESS !=
+               gnutls_credentials_set (tc->sess, GNUTLS_CRD_PSK, tc->psk))
+        tc->dead = 1;
+    }
+  }
   if ( (cfg.client_sni) &&
        (0 != sni_name_len) )
     (void) gnutls_server_name_set (tc->sess,
@@ -1314,6 +1563,11 @@ tc_close (struct MHD_Daemon *d,
     gnutls_certificate_free_credentials (tc->cred);
     tc->cred = NULL;
   }
+  if (NULL != tc->psk)
+  {
+    gnutls_psk_free_client_credentials (tc->psk);
+    tc->psk = NULL;
+  }
   if (0 <= tc->fd)
   {
     if (cfg.client_shut_wr)
@@ -1325,6 +1579,41 @@ tc_close (struct MHD_Daemon *d,
   tc->hs_done = 0;
   tc->dead = 1;
   pump (d, 4);
+}
+
+
+/**
+ * Hand the daemon one more connection and do not run the loop again.
+ *
+ * See the comment at the call site: this is what leaves a fully prepared
+ * connection -- GnuTLS session and all -- on the daemon's
+ * new_connections list when MHD_stop_daemon() runs.
+ *
+ * @param d the daemon, about to be stopped
+ * @return our end of the socket pair, or -1 if nothing was queued
+ */
+static int
+queue_unprocessed_conn (struct MHD_Daemon *d)
+{
+  int sv[2];
+  struct sockaddr_in sa;
+
+  if (0 != socketpair (AF_UNIX, SOCK_STREAM, 0, sv))
+    return -1;
+  memset (&sa, 0, sizeof (sa));
+  sa.sin_family = AF_INET;
+  sa.sin_port = htons (44444);
+  sa.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+  if (MHD_YES != MHD_add_connection (d,
+                                     (MHD_socket) sv[1],
+                                     (const struct sockaddr *) &sa,
+                                     (socklen_t) sizeof (sa)))
+  {
+    /* MHD has closed sv[1] already. */
+    (void) close (sv[0]);
+    return -1;
+  }
+  return sv[0];
 }
 
 
@@ -1407,6 +1696,7 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
   size_t pos;
   unsigned int nseg = 0;
   unsigned int nconn = 1;
+  int queued_fd = -1;          /**< see queue_unprocessed_conn() */
 
   /* Must happen before the first write() into the socketpair; see
      fuzz_ignore_sigpipe() in fuzz_common.h for why the process dies
@@ -1448,6 +1738,8 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
   cfg.trust_garbage = (0 != (data[3] & 0x40));
   cfg.dh_garbage = (0 != (data[3] & 0x80));
 
+  cfg.prio_str = prio_tbl[cfg.prio_idx];
+
   cfg.mode = (enum client_mode) (data[4] & 0x03);
   cfg.client_sni = (0 != (data[4] & 0x04));
   cfg.client_cert = (0 != (data[4] & 0x08));
@@ -1457,6 +1749,7 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
 
   cfg.mem_limit = mem_limit_tbl[(data[5] & 0x0F) % MEM_LIMIT_COUNT];
   cfg.loop_mode = (unsigned int) ((data[5] >> 4) & 0x03);
+  cfg.stop_with_queued = (0 != (data[5] & 0x40));
 
   cfg.resp_kind = (unsigned int) (data[6] & 0x03);
   cfg.conn_info = (0 != (data[6] & 0x04));
@@ -1472,6 +1765,39 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
     (0 != (data[7] & 0x10)) &&
     (MHD_YES == MHD_is_feature_supported (MHD_FEATURE_UPGRADE));
   cfg.extra_pump = (unsigned int) ((data[7] >> 5) & 0x07);
+
+  cfg.psk_mode =
+    (enum psk_behaviour) (((unsigned int) (data[9] >> 3) & 0x07)
+                          % (unsigned int) PSK_BEHAVIOUR_COUNT);
+  cfg.client_psk = (0 != (data[9] & 0x40));
+#if GNUTLS_VERSION_MAJOR >= 3
+  cfg.psk_scenario = (0 != (data[9] & 0x80));
+#else
+  /* MHD refuses MHD_OPTION_GNUTLS_PSK_CRED_HANDLER outright when it was
+     built against GnuTLS 2, so there is nothing to reach there. */
+  cfg.psk_scenario = 0;
+#endif
+
+  /* The PSK bundle.  Four things have to line up before GnuTLS asks the
+     server for a key at all; see the TLS-PSK note at the top of this
+     file for why they are not four independent input bits. */
+  if (cfg.psk_scenario)
+  {
+    cfg.use_tls = 1;
+    cfg.use_cred_type = 1;
+    cfg.cred_type_idx = PSK_CRED_TYPE_IDX;
+    cfg.use_prio = 1;
+    cfg.prio_append = 0;
+    cfg.prio_str = psk_prio_tbl[cfg.client_prio_idx];
+    /* Raw bytes never negotiate anything; the abandoning client is kept
+       because stopping half way through a PSK handshake is its own
+       shape. */
+    if ( (CLIENT_TLS != cfg.mode) &&
+         (CLIENT_TLS_ABANDON != cfg.mode) )
+      cfg.mode = CLIENT_TLS;
+  }
+  else
+    cfg.client_psk = 0;
 
   /* A real handshake is pointless without a working credential setup on
      our own side; fall back to the raw modes if the SNI certificates
@@ -1545,7 +1871,7 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
                         ? MHD_OPTION_HTTPS_PRIORITIES_APPEND
                         : MHD_OPTION_HTTPS_PRIORITIES;
     opts[nopt].value = 0;
-    opts[nopt].ptr_value = (void *) (intptr_t) prio_tbl[cfg.prio_idx];
+    opts[nopt].ptr_value = (void *) (intptr_t) cfg.prio_str;
     nopt++;
   }
   if (cfg.use_cred_type)
@@ -1575,19 +1901,41 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
     flags |= MHD_ALLOW_UPGRADE;
 
   MHD_set_panic_func (&panic_cb, NULL);
+  /* The callback options go through the varargs rather than through the
+     option array: the array's ptr_value is a void *, and a function
+     pointer does not portably fit in one.  A NULL callback is exactly
+     equivalent to not passing the option -- which is what makes
+     PSK_NO_HANDLER (the "PSK not supported by this server" arm of
+     psk_gnutls_adapter()) reachable without a second call site.
+
+     MHD_OPTION_GNUTLS_PSK_CRED_HANDLER is the exception: an MHD built
+     against GnuTLS 2 rejects it whatever the callback is, and rejecting
+     an option fails the whole MHD_start_daemon(), so on such a build the
+     option must not be passed at all. */
+#if GNUTLS_VERSION_MAJOR >= 3
   d = MHD_start_daemon (flags,
                         0,
                         NULL, NULL,
                         &ahc, NULL,
                         MHD_OPTION_ARRAY, opts,
-                        /* Passed through the varargs rather than through
-                           the option array: the array's ptr_value is a
-                           void *, and a function pointer does not
-                           portably fit in one.  A NULL here is exactly
-                           equivalent to not passing the option. */
+                        MHD_OPTION_HTTPS_CERT_CALLBACK,
+                        cfg.use_sni ? &sni_callback : NULL,
+                        MHD_OPTION_GNUTLS_PSK_CRED_HANDLER,
+                        (cfg.psk_scenario &&
+                         (PSK_NO_HANDLER != cfg.psk_mode))
+                        ? &psk_cred_cb : NULL,
+                        NULL,
+                        MHD_OPTION_END);
+#else
+  d = MHD_start_daemon (flags,
+                        0,
+                        NULL, NULL,
+                        &ahc, NULL,
+                        MHD_OPTION_ARRAY, opts,
                         MHD_OPTION_HTTPS_CERT_CALLBACK,
                         cfg.use_sni ? &sni_callback : NULL,
                         MHD_OPTION_END);
+#endif
   if (NULL == d)
   {
     stat_daemons_failed++;
@@ -1612,6 +1960,7 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
      override the server name byte 9 selected. */
   tc.sess = NULL;
   tc.cred = NULL;
+  tc.psk = NULL;
   tc.fd = -1;
   tc.hs_done = 0;
   tc.dead = 1;
@@ -1675,7 +2024,18 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
 
   if (cfg.quiesce)
     (void) MHD_quiesce_daemon (d);
+  /* Last, so that no run can drain the list again.  MHD_add_connection()
+     on a thread-safe daemon (the default) only queues the socket, but
+     new_connection_prepare_() has already built the GnuTLS session for
+     it; stopping before the next run is what makes MHD free that session
+     from new_connection_close_() rather than from the ordinary
+     connection teardown.  fuzz_eventloop covers the same shape without
+     TLS -- see its byte 3 bit 4. */
+  if (cfg.stop_with_queued)
+    queued_fd = queue_unprocessed_conn (d);
   MHD_stop_daemon (d);
+  if (0 <= queued_fd)
+    (void) close (queued_fd);
   return 0;
 }
 
@@ -1745,6 +2105,7 @@ enum gen_shape
   SHAPE_SNI,            /**< the certificate callback, all behaviours */
   SHAPE_PEM_FUZZ,       /**< PEM blobs built from the generator's own bytes */
   SHAPE_RECORDS,        /**< hand-built TLS records */
+  SHAPE_PSK,            /**< the pre-shared key credentials path */
   SHAPE_COUNT
 };
 
@@ -2014,6 +2375,23 @@ fuzz_generate (struct fuzz_rng *rng,
     cfg_bytes[4] = (uint8_t) ((cfg_bytes[4] & ~0x03u) | CLIENT_RECORDS);
     make_daemon_startable (rng, cfg_bytes);
     break;
+  case SHAPE_PSK:
+    /* The certificate is irrelevant to a PSK handshake but still has to
+       let the daemon start, so keep the valid pair. */
+    cfg_bytes[0] = 0;
+    cfg_bytes[4] = (uint8_t) ((cfg_bytes[4] & ~0x03u)
+                              | (fuzz_chance (rng, 5) ? CLIENT_TLS_ABANDON
+                                 : CLIENT_TLS));
+    cfg_bytes[1] &= (uint8_t) ~0x04u;    /* no SNI callback */
+    make_daemon_startable (rng, cfg_bytes);
+    cfg_bytes[9] = (uint8_t)
+                   (0x80u                                 /* the scenario itself */
+                    | (fuzz_chance (rng, 6) ? 0u : 0x40u) /* client PSK */
+                    | (uint8_t) (fuzz_below (rng,
+                                             (uint32_t) PSK_BEHAVIOUR_COUNT)
+                                 << 3)
+                    | (uint8_t) fuzz_below (rng, (uint32_t) SNI_NAME_COUNT));
+    break;
   case SHAPE_COUNT:
   default:
     break;
@@ -2198,6 +2576,80 @@ static const struct seed_def seeds[] = {
      handshake cannot. */
   { "cred-type-psk",
     { 0, 0x10, 0, 0x01, 0x01, 0x00, 0x00, 0x00, 0, 0 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* The TLS-PSK scenario (byte 9 bit 7), one seed per branch of
+     psk_gnutls_adapter().  Byte 9 is
+       0x80 scenario | 0x40 client offers PSK | behaviour << 3 | identity.
+     Byte 4 bits 4-5 pick the PSK priority string, which is what decides
+     the protocol version the PSK key exchange runs under. */
+
+  /* The whole path end to end: identity accepted, key matches, handshake
+     completes, and MHD then serves plain HTTP over a session that has no
+     certificate at all (byte 6 bit 2 reads the TLS members back). */
+  { "psk-handshake",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x04, 0x00, 0, 0xC0 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* The same over TLS 1.3, where GnuTLS treats the key as an external
+     PSK and the exchange has a different shape. */
+  { "psk-handshake-tls13",
+    { 0, 0x00, 0, 0, 0x21, 0x00, 0x00, 0x00, 0, 0xC0 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* The application refuses the identity: the adapter's -1 arm. */
+  { "psk-callback-fails",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x00, 0x00, 0, 0xC8 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* Zero length key: the "PSK too short" arm, and the reason MHD never
+     reaches gnutls_malloc(0). */
+  { "psk-empty-key",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x00, 0x00, 0, 0xD0 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* One byte below the minimum -- the other side of the boundary that
+     psk-handshake (exactly the minimum) sits on. */
+  { "psk-one-byte-short",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x00, 0x00, 0, 0xF8 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* 4 KiB key: the copy into the gnutls_malloc()ed buffer, at a size no
+     ciphersuite expects. */
+  { "psk-long-key",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x00, 0x00, 0, 0xD8 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* Key length taken from the identity, with the longest identity in the
+     table (sni_name_tbl entry 7, 62 characters): the callback then hands
+     back a 62 byte key, which no PSK ciphersuite expects. */
+  { "psk-key-from-identity",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x00, 0x00, 0, 0xE7 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* A key size above UINT_MAX: the "PSK too long" arm, which has to
+     free the application's buffer and fail. */
+  { "psk-oversized-key",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x00, 0x00, 0, 0xE8 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* PSK credential type, PSK ciphersuite, but no credentials callback:
+     the "PSK not supported by this server" arm. */
+  { "psk-no-handler",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x00, 0x00, 0, 0xF0 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* A PSK-only server against a client that offers no PSK identity: the
+     handshake fails before the adapter is ever asked. */
+  { "psk-client-no-creds",
+    { 0, 0x00, 0, 0, 0x11, 0x00, 0x00, 0x00, 0, 0x80 },
+    { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
+
+  /* Byte 5 bit 6: stop the daemon with a connection queued but never
+     started, so that its GnuTLS session is freed by
+     new_connection_close_() instead of by the ordinary teardown. */
+  { "stop-with-queued-connection",
+    { 0, 0x00, 0, 0, 0x01, 0x40, 0x00, 0x00, 0, 0 },
     { { 0, "GET / HTTP/1.1\r\nHost: x\r\n\r\n" }, P_END, P_END, P_END } },
 
   /* The SNI callback, answering for the presented name (byte 9 = 0,

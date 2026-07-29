@@ -1,0 +1,5 @@
+ÿÿie: a=b
+GET /ÿt:path?a31 HTTP/1.1
+Host: x
+Cookie: a==b
+

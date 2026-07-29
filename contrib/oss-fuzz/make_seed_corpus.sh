@@ -40,6 +40,7 @@ OUTDIR="${2:-${OUT:-$(pwd)/out}}"
 
 CORPUS="${SRCDIR}/src/fuzz/corpus"
 FINDINGS="${CORPUS}/known-findings"
+DISTILLED="${CORPUS}/distilled"
 PATCHES="${SRCDIR}/patches"
 
 FUZZERS="fuzz_request fuzz_options fuzz_eventloop fuzz_str fuzz_memorypool fuzz_auth_header fuzz_postprocessor"
@@ -94,6 +95,19 @@ for fuzzer in ${FUZZERS}; do
         continue
       fi
       cp "${f}" "${dir}/known-finding-$(basename "${f}")"
+      n=$((n + 1))
+    done
+  fi
+
+  # distilled/ is the edge-minimal residue of a fuzzing campaign, named
+  # "<harness>-dNNN.bin" and therefore routed by prefix like the seeds
+  # above.  It is by far the largest part of the seed corpus and the
+  # reason a fresh ClusterFuzz run starts near the coverage the last
+  # campaign reached instead of climbing back to it.
+  if [ -d "${DISTILLED}" ]; then
+    for f in "${DISTILLED}/${fuzzer}"-*.bin; do
+      [ -f "${f}" ] || continue
+      cp "${f}" "${dir}/distilled-$(basename "${f}")"
       n=$((n + 1))
     done
   fi

@@ -1,7 +1,7 @@
 GNU libmicrohttpd -- in-process fuzzing harnesses
 =================================================
 
-This directory contains four in-process fuzzing harnesses for MHD.  All
+This directory contains eight in-process fuzzing harnesses for MHD.  All
 of them are *dual mode*:
 
   * they export the libFuzzer entry point
@@ -45,6 +45,50 @@ fuzz_postprocessor.c    fuzzing of MHD_post_process() with random
                         Content-Type (urlencoded / multipart with random
                         boundaries), random post-processor buffer sizes
                         and random chunking of the POST data.
+
+fuzz_options.c          the daemon *configuration* surface.  fuzz_request
+                        always starts the daemon in one shape; this one
+                        lets the input pick the MHD_FLAG bits and the
+                        MHD_OPTION array, so the flag validation in
+                        MHD_start_daemon(), parse_options_va(), the
+                        internal polling thread, the thread pool,
+                        epoll/poll/select, the listen socket, the per-IP
+                        and per-daemon connection limits and quiesce all
+                        become reachable.
+
+fuzz_eventloop.c        the external event loop and the scheduling of the
+                        connection life cycle.  The input is not a
+                        request but a *schedule*: a program of one-byte
+                        opcodes interpreted against a live daemon, so the
+                        application can poll at adversarial times, ignore
+                        the timeout it was given, call
+                        MHD_run_from_select() with descriptor sets that
+                        do not match what MHD asked for, and
+                        suspend/resume across those calls.  Byte 3 bit 4
+                        also lets it stop the daemon with a connection
+                        queued by MHD_add_connection() but never
+                        started, which is the only way into
+                        new_connection_close_() -- see section 5.5.
+
+fuzz_memorypool.c       direct fuzzing of src/microhttpd/memorypool.c,
+                        the per-connection bump allocator.  A single
+                        mis-computed offset there is a cross-request
+                        information leak that ASAN cannot see on its own,
+                        because the whole pool is one malloc()ed object;
+                        the harness therefore carries its own oracles and
+                        knows the red zone size that
+                        MHD_ASAN_POISON_ACTIVE adds between two blocks.
+
+fuzz_tls.c              MHD's own TLS plumbing -- the MHD_USE_TLS option
+                        surface (HTTPS_MEM_KEY/CERT/TRUST/DHPARAMS,
+                        PRIORITIES, CRED_TYPE, KEY_PASSWORD, ALPN, SNI,
+                        GNUTLS_PSK_CRED_HANDLER) rather than GnuTLS,
+                        which has its own OSS-Fuzz project.  Byte 9 bit 7
+                        switches on the TLS-PSK scenario, the only route
+                        to psk_gnutls_adapter() -- see section 5.5.  It
+                        needs a TLS backend and is therefore the one
+                        harness contrib/oss-fuzz/build.sh does not build
+                        (that build is --disable-https).
 
 Shared code lives in `fuzz_common.h` (header-only, so every harness
 stays a single translation unit).
@@ -426,6 +470,45 @@ finds each of them on its own within a few thousand iterations.
     immediately.  The target models a *caller*, not the library, so it
     is off by default.
 
+5.5 Code that only a deliberate scenario reaches
+    A coverage-guided engine gets to a branch by mutating towards it, so
+    it never gets to one that needs several unrelated configuration
+    bytes to be right at the same time: the intermediate inputs score no
+    better than the ones around them, and the fuzzer has no gradient to
+    follow.  An 8 hour, 12 core, 1.6 billion execution campaign, on top
+    of the whole test suite, left exactly three library functions at zero
+    coverage for that reason.  All three now have a scenario:
+
+    psk_gnutls_adapter() (daemon.c) -- MHD's only piece of TLS code that
+    takes a buffer straight from an application callback.  Needs
+    GNUTLS_CRD_PSK, a PSK-capable priority string *on both ends*
+    ("NORMAL" has none), MHD_OPTION_GNUTLS_PSK_CRED_HANDLER, and a
+    client offering a PSK identity.  fuzz_tls byte 9 bit 7 switches all
+    four on together; bits 3-5 then pick which arm of the adapter to
+    exercise (missing callback, failing callback, 4 KiB key, key length
+    taken from the identity the client sent, size above UINT_MAX, and
+    the two sizes below the MHD_PSK_MIN_SIZE the adapter enforces --
+    zero and one byte short, which together with the exactly-minimum
+    PSK_OK bracket that check from both sides).  Seeds `psk-*`.
+
+    new_connection_close_() (daemon.c) -- frees a connection that was
+    accepted but never started.  On a thread-safe daemon (the default,
+    including a pure external event loop) MHD_add_connection() only
+    queues the socket; the connection object is built by the next run.
+    The function is reachable only if the daemon is stopped before that
+    run happens, and every harness used to call MHD_run() once more
+    during teardown.  fuzz_eventloop byte 3 bit 4 queues one connection
+    after the teardown and stops without running.  Seeds
+    `stop-with-queued-connection`, `stop-with-queued-after-quiesce`.
+    It is not a race: no second thread is involved.
+
+    MHD_check_response_header_token_ci() (response.c) -- this one was
+    not a fuzzing problem.  The function was added in 2017 and never
+    called, so no input could reach it.  The single place that wants it,
+    the "Connection: upgrade" check in MHD_queue_response(), open-coded
+    the scan against response->first_header instead; that now calls the
+    helper, and the existing `ext-upgrade` seed and K7 cover it.
+
 
 -------------------------------------------------------------------
 6. Findings against MHD 1.0.7 - all fixed, kept as regressions
@@ -695,15 +778,46 @@ K14 daemon.c:1358  call_handlers():
     confirm it against the OSS-Fuzz build configuration.
     Repro: corpus/known-findings/K14-fuzz_eventloop-force-close-not-closed.bin
 
+K15 daemon.c:9201  close_all_connections():
+        mhd_assert (MHD_D_IS_USING_THREADS_ (daemon))
+    Fixed; found while giving new_connection_close_() its first coverage
+    (section 5.5).
+
+    Three places describe the same invariant and one of them disagreed.
+    internal_add_connection() queues a connection when
+    `external_add && MHD_D_IS_THREAD_SAFE_(daemon)`, and
+    new_connections_list_process_() asserts MHD_D_IS_THREAD_SAFE_ --
+    that is, whenever the daemon was not started with
+    MHD_USE_NO_THREAD_SAFETY, which includes every external event loop.
+    The shutdown drain asserted the much stronger
+    MHD_D_IS_USING_THREADS_ instead, i.e. that the daemon has an
+    internal polling thread.
+
+    So an application that drives an external event loop, calls
+    MHD_add_connection() and then MHD_stop_daemon() before the next
+    MHD_run() aborts on an --enable-asserts build.  No threads and no
+    race are involved, and a build with NDEBUG handles the same sequence
+    correctly, which is why nothing had noticed: the list is exactly what
+    holds the connection at that point and new_connection_close_() frees
+    it properly.
+
+    The assert was the outlier and now matches the other two sites.  The
+    opposite reading -- that an external event loop should not queue at
+    all and internal_add_connection() should test
+    MHD_D_IS_USING_THREADS_ -- would change MHD_add_connection()'s
+    threading contract, since queueing is what makes that call safe from
+    another thread on a daemon with no thread of its own.
+    Repro: corpus/known-findings/K15-fuzz_eventloop-stop-with-queued-connection.bin
+
 Status
 ------
 
-K1-K12 are fixed on master:
+K1-K12 and K15 are fixed on master:
 
     K1  300a2ab0     K4a 0b750975     K7  acef58a0     K10 (memorypool)
     K2  68c83f22     K4b 0b750975     K8  07c051dd     K11 (memorypool)
     K3  e04eb218     K5  6fcdfd43     K9  (postproc)   K12 (daemon/TLS)
-                     K6  f438804c
+                     K6  f438804c                      K15 (daemon)
 
 K13 and K14 are open, with proposed fixes in ../../patches/.  Until K14
 lands, `make check-corpus` fails on an `--enable-asserts` build, because

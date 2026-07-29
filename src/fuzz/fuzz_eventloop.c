@@ -77,7 +77,11 @@
  *              bit  2    run the timeout oracle after every operation
  *              bit  3    allow a real-time wait for a connection timeout
  *                        to expire (globally budgeted, see below)
- *              bits 4-7  unused
+ *              bit  4    queue one more connection at the very end and
+ *                        stop the daemon without running the loop again,
+ *                        so that MHD has to dispose of a connection it
+ *                        never started (see queue_unprocessed_conn())
+ *              bits 5-7  unused
  *   byte 4   artificial-clock step base
  *   byte 5.  the operation program.  Each operation is one byte,
  *            `(opcode << 4) | argument`; see enum op below.  OP_SEND_RAW
@@ -217,6 +221,7 @@ struct el_cfg
   unsigned int nconn_up_front; /**< connections opened before the program */
   int check_always;            /**< run the timeout oracle after every op */
   int allow_real_wait;         /**< may burn real time on a timeout expiry */
+  int stop_with_queued;        /**< stop with a connection still queued */
   uint8_t clock_seed;          /**< artificial-clock step base */
 };
 
@@ -336,6 +341,7 @@ static unsigned long stat_quiesce;
 static unsigned long stat_suspend;
 static unsigned long stat_resume;
 static unsigned long stat_expiry_waits;
+static unsigned long stat_queued_at_stop;
 static int stats_registered;
 
 
@@ -348,12 +354,12 @@ print_stats (void)
            "%s: daemons=%lu handler=%lu get_fdset=%lu get_fdset2=%lu "
            "run_from_select=%lu run_from_select2=%lu run=%lu run_wait=%lu "
            "timeout queries=%lu quiesce=%lu suspend=%lu resume=%lu "
-           "expiry waits=%lu\n",
+           "expiry waits=%lu queued at stop=%lu\n",
            FUZZ_HARNESS_NAME,
            stat_daemons, stat_handler_calls, stat_fdset_v1, stat_fdset_v2,
            stat_rfs_v1, stat_rfs_v2, stat_run, stat_run_wait,
            stat_timeouts, stat_quiesce, stat_suspend, stat_resume,
-           stat_expiry_waits);
+           stat_expiry_waits, stat_queued_at_stop);
 }
 
 
@@ -1130,6 +1136,53 @@ new_connection (struct MHD_Daemon *d)
 
 
 /**
+ * Hand the daemon one more connection and do not run the loop again.
+ *
+ * MHD_add_connection() on a thread-safe daemon does not build the
+ * `struct MHD_Connection` right away; it puts the socket on
+ * `daemon->new_connections_head` and leaves the rest to the next run.
+ * Stopping the daemon before that run is the only way to reach
+ * new_connection_close_() in daemon.c, which is where MHD disposes of a
+ * connection it accepted but never started.  The ordinary teardown below
+ * always calls MHD_run() once more, which is why 1.6 billion executions
+ * left that function at zero coverage.
+ *
+ * The socket pair is deliberately kept out of the harness's own
+ * connection table: nothing is ever sent on it, no notify callback fires
+ * for it, and by this point the teardown has already closed every
+ * tracked slot.  Our end is returned so that the caller can close it
+ * after MHD_stop_daemon().
+ *
+ * @param d the daemon, about to be stopped
+ * @return our end of the socket pair, or -1 if nothing was queued
+ */
+static int
+queue_unprocessed_conn (struct MHD_Daemon *d)
+{
+  int sv[2];
+  struct sockaddr_in sa;
+
+  if (0 != socketpair (AF_UNIX, SOCK_STREAM, 0, sv))
+    return -1;
+  memset (&sa, 0, sizeof (sa));
+  sa.sin_family = AF_INET;
+  sa.sin_port = htons (44444);
+  sa.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
+  if (MHD_YES != MHD_add_connection (d,
+                                     (MHD_socket) sv[1],
+                                     (const struct sockaddr *) &sa,
+                                     (socklen_t) sizeof (sa)))
+  {
+    /* MHD has closed sv[1] already. */
+    (void) close (sv[0]);
+    return -1;
+  }
+  stat_queued_at_stop++;
+  return sv[0];
+}
+
+
+/**
  * Drop our end of connection @a i.
  *
  * @param graceful non-zero to shut the write side down first (an orderly
@@ -1352,6 +1405,7 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
   size_t pos;
   unsigned int nops = 0;
   unsigned int i;
+  int queued_fd = -1;          /**< see queue_unprocessed_conn() */
 
   /* Must happen before the first write() into a socketpair.  The built-in
      driver also does this, but that code is compiled out under
@@ -1419,6 +1473,7 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
   cfg.nconn_up_front = 1u + (unsigned int) (data[3] & 0x03);
   cfg.check_always = (0 != (data[3] & 0x04));
   cfg.allow_real_wait = (0 != (data[3] & 0x08));
+  cfg.stop_with_queued = (0 != (data[3] & 0x10));
   cfg.clock_seed = data[4];
 
   if (0 != cfg.mem_limit)
@@ -1549,7 +1604,8 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
         wait_for_expiry (d);
       else
       {
-        clk_ms += (uint64_t) (1u + arg) * (uint64_t) (1u + cfg.clock_seed % 64u);
+        clk_ms += (uint64_t) (1u + arg) * (uint64_t) (1u + cfg.clock_seed % 64u)
+        ;
         if ( (cfg.honour_timeout) &&
              (deadline_valid) &&
              (deadline_ms <= clk_ms) )
@@ -1598,6 +1654,7 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
 
   /* ---- teardown ---- */
   tearing_down = 1;
+  queued_fd = -1;
   for (i = 0; i < MAX_CONNS; i++)
     close_conn (i, 1);
   /* A connection left suspended makes MHD_stop_daemon() MHD_PANIC()
@@ -1616,8 +1673,16 @@ LLVMFuzzerTestOneInput (const uint8_t *data,
   (void) MHD_run (d);
   if (cfg.quiesce_end)
     op_quiesce (d);
+  /* Last, so that no run can drain the list again. */
+  if (cfg.stop_with_queued)
+    queued_fd = queue_unprocessed_conn (d);
   MHD_stop_daemon (d);
   cur_daemon = NULL;
+  if (0 <= queued_fd)
+  {
+    (void) close (queued_fd);
+    queued_fd = -1;
+  }
   if (MHD_INVALID_SOCKET != quiesced_fd)
   {
     (void) close (quiesced_fd);
@@ -1954,7 +2019,19 @@ static const struct seed_def seeds[] = {
      indefinite wait is fine */
   { "no-timeout-configured", { 0x02, 0x80, 0x00, 0x04, 0x00 },
     { OPB (OP_SEND_FRAG, 1), OPB (OP_TIMEOUT, 0), OPB (OP_RUN, 2),
-      OPB (OP_TIMEOUT, 0), OPB (OP_SEND_FRAG, 2), OPB (OP_RUN, 2) }, 6 }
+      OPB (OP_TIMEOUT, 0), OPB (OP_SEND_FRAG, 2), OPB (OP_RUN, 2) }, 6 },
+
+  /* byte 3 bit 4: after the program has run and everything has been torn
+     down, hand MHD one more connection and stop it without another run,
+     so that it has to dispose of a connection it never started.  That is
+     new_connection_close_() in daemon.c, which nothing else reaches. */
+  { "stop-with-queued-connection", { 0x00, 0x80, 0x00, 0x10, 0x00 },
+    { OPB (OP_SEND_FRAG, 0), OPB (OP_RUN, 2), OPB (OP_TIMEOUT, 0) }, 3 },
+
+  /* the same after MHD_quiesce_daemon() on a daemon that really has a
+     listening socket, which is the other order the two can happen in */
+  { "stop-with-queued-after-quiesce", { 0x04, 0x80, 0x80, 0x10, 0x00 },
+    { OPB (OP_SEND_FRAG, 0), OPB (OP_RUN, 2) }, 2 }
 };
 
 static uint8_t seed_render_buf[64];

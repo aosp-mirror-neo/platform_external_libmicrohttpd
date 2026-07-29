@@ -48,11 +48,17 @@ to the build system is not required and not wanted.
     make_seed_corpus.sh         packages src/fuzz/corpus/ into
                                 $OUT/<fuzzer>_seed_corpus.zip
     fuzz_request.options        per-harness libFuzzer options (max_len, dict)
+    fuzz_options.options
+    fuzz_eventloop.options
     fuzz_str.options
+    fuzz_memorypool.options
     fuzz_auth_header.options
     fuzz_postprocessor.options
     dicts/fuzz_request.dict     per-harness fuzzing dictionaries
+    dicts/fuzz_options.dict
+    dicts/fuzz_eventloop.dict
     dicts/fuzz_str.dict
+    dicts/fuzz_memorypool.dict
     dicts/fuzz_auth_header.dict
     dicts/fuzz_postprocessor.dict
     README                      this file
@@ -64,7 +70,7 @@ the corpus packager live here and not in the OSS-Fuzz repository.
 
 
 -------------------------------------------------------------------
-2. The four fuzz targets
+2. The fuzz targets
 -------------------------------------------------------------------
 
     fuzz_request            a real struct MHD_Daemon driven over a
@@ -75,13 +81,28 @@ the corpus packager live here and not in the OSS-Fuzz repository.
                             constructor, the authentication entry point,
                             the event-loop API, and whether the
                             connection is suspended or upgraded
+    fuzz_options            the daemon configuration surface: the input
+                            picks the MHD_FLAG bits and the MHD_OPTION
+                            array, reaching the flag validation, the
+                            thread pool, the internal polling modes, the
+                            listen socket and the connection limits
+    fuzz_eventloop          the external event loop: the input is a
+                            program of opcodes that polls, ignores
+                            timeouts, mismatches descriptor sets and
+                            suspends/resumes against a live daemon
     fuzz_str                the mhd_str.c primitives with exactly-sized
                             output buffers
+    fuzz_memorypool         memorypool.c, the per-connection bump
+                            allocator, with the harness's own oracles
     fuzz_auth_header        MHD_get_rq_dauth_params_() /
                             MHD_get_rq_bauth_params_()
     fuzz_postprocessor      MHD_post_process()
 
-All four are single translation units that export
+src/fuzz/ has one more harness, `fuzz_tls`, which is deliberately absent
+here: it needs a TLS backend and this build is --disable-https (see
+section 3).
+
+All seven are single translation units that export
 
     int LLVMFuzzerTestOneInput (const uint8_t *data, size_t size);
 
@@ -107,8 +128,20 @@ harness ignores the extra bytes, so libFuzzer does not waste its budget:
                                and a body-oracle declaration.  Larger
                                inputs are safe -- every segment is bounded
                                independently -- but buy almost nothing.
+    fuzz_options        8192   the flag/option block plus one short
+                               request; the request half is what makes
+                               the tail of the input worth anything, so
+                               this tracks fuzz_request rather than the
+                               (much smaller) option block alone.
+    fuzz_eventloop       512   configuration byte + the opcode program.
+                               Opcodes are one byte each and the program
+                               is bounded, so a longer input only adds
+                               opcodes that are never interpreted.
     fuzz_str             514   2 selector bytes + the payload, which the
                                harness truncates to 512.
+    fuzz_memorypool      200   the smallest of the set: a pool size and a
+                               short program of allocate/reallocate/reset
+                               operations, all bounded.
     fuzz_auth_header    4097   1 selector byte + the Authorization header
                                value, truncated to 4096.
     fuzz_postprocessor  8196   4 selector bytes + the POST body, truncated

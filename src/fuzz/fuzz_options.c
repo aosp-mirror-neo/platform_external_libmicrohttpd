@@ -1332,9 +1332,13 @@ start_daemon_variant (unsigned int flags,
 
 /**
  * The accept policy callback.  MHD_accept_connection() calls it with the
- * peer address of every socket it accepts and closes the connection
- * again when it answers MHD_NO, which is a code path (and a whole
- * function, new_connection_close_()) that nothing else here reaches.
+ * peer address of every socket it accepts, and answering MHD_NO makes
+ * new_connection_prepare_() close the socket and drop the IP-limit entry
+ * before any connection object exists -- a path nothing else here
+ * reaches.  (It does *not* reach new_connection_close_(): that one is
+ * only called from close_all_connections(), for connections queued by
+ * MHD_add_connection() and never started.  See the byte 3 bit 4
+ * scenario in fuzz_eventloop.c.)
  */
 static enum MHD_Result
 apc_cb (void *cls,
