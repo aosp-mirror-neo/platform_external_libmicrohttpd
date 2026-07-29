@@ -131,9 +131,10 @@ fuzz_postprocessor seeds
 distilled/
 ----------
 
-The edge-minimal residue of a fuzzing campaign: 2467 inputs, 222 KB,
+The edge-minimal residue of the fuzzing campaigns: 2562 inputs, 240 KB,
 named `<harness>-dNNN.bin` and routed by that prefix exactly like the
-seeds above.
+seeds above.  Files are numbered in the order the cover picked them, so
+`-d000` is the highest-gain input of its harness.
 
 Unlike `<harness>-NN.bin` these are *not* generated from a built-in
 table, so `refresh-corpus` neither writes nor clobbers them; and unlike
@@ -156,6 +157,32 @@ cover is built only from edges that two independent merges agree an
 input reproduces -- the same "several independent merges" rule stated at
 the top of this file.
 
+The `fuzz_eventloop` and `fuzz_tls` inputs come from a second, 1 hour /
+4 core / 17.0 million execution campaign (same sanitizers, same engine,
+`--enable-https` so that `fuzz_tls` could be built at all -- note that
+`contrib/oss-fuzz/build.sh` configures `--disable-https`, which is why
+`fuzz_tls` had no distilled inputs before and started that campaign from
+its seed table alone).  It ran after the PSK scenario and the
+queue-and-stop scenario were added to those two harnesses, and its
+starting corpus was this directory plus the first campaign's residue, so
+what it contributed is beyond what 8 core-hours per harness had already
+reached: `fuzz_tls` 6355 -> 6844 edges, `fuzz_eventloop` 7406 -> 7655.
+The other six harnesses were not re-run; their inputs are unchanged.
+
+A `COV` line holds only the edges its input was *first* to reach in that
+merge, so what a cover has to pay for depends on what it is credited
+with already having.  Credit it with everything else that stays in the
+tree -- both seed sets and the distilled inputs of the harnesses not
+being regenerated -- because `check-corpus` replays all three
+directories through every harness, and an input is worth carrying only
+if it adds an edge none of them reach.  Doing that costs nothing and is
+worth roughly a third of the files: the `fuzz_tls` cover needed 490
+edges and 167 inputs against the whole tree, against 1580 edges and 282
+inputs when credited with the seed corpus alone -- identical coverage
+either way, because the other harnesses' inputs were already reaching
+those 1090 edges.  Compute every harness's cover against the same base
+so that no two of them depend on each other.
+
 **An engine-produced corpus is not pristine, and this directory has to
 be filtered before it can be committed.**  `fuzz_request` inputs carry a
 ground-truth body declaration in their `op == 1` segment, and the body
@@ -174,28 +201,53 @@ that looks exactly like a request-smuggling finding.
 Committing the raw cover therefore broke `make check-corpus` with 42
 such reports.  The fix is to sweep every candidate with
 `--file=` first and exclude the ones that fire *before* computing the
-cover, which is what produced the set in this directory; all 2467 files
+cover, which is what produced the set in this directory; all 2562 files
 replay clean through all eight harnesses.  Anyone replaying a downloaded
 ClusterFuzz corpus locally will hit the same thing, and it is not a bug
 in MHD.
 
-The set reaches ~99% of the campaign's edges, not 100%: 3763/3798 for
-fuzz_request, and exactly 100% for the four direct-API harnesses, which
-are deterministic.  Two thirds of that shortfall is the exclusion above
--- 64 edges were reached only by inputs with a stale declaration -- and
-the rest is edges no single input reproduces reliably.  Forcing the
-latter in by adding every input that covers a rare edge was tried and
-moved the number by one, so that part is inherent to minimising rather
-than a fixable omission.  Trading 1% of edges for 86% fewer files is the
-intended bargain.  Do not chase it.
+Sweep every candidate anyway, but expect this particular exclusion only
+for `fuzz_request`: it is the sole reader of `fuzz_pristine`, so it is
+the only harness that can report a desync against its own stale
+declaration.  The second campaign's 15 554 candidates produced no
+rejects at all for that reason.
+
+The set reaches ~99% of the first campaign's edges, not 100%: 3763/3798
+for fuzz_request, and exactly 100% for the four direct-API harnesses,
+which are deterministic.  Two thirds of that shortfall is the exclusion
+above -- 64 edges were reached only by inputs with a stale declaration
+-- and the rest is edges no single input reproduces reliably.  Forcing
+the latter in by adding every input that covers a rare edge was tried
+and moved the number by one, so that part is inherent to minimising
+rather than a fixable omission.  Trading 1% of edges for 86% fewer files
+is the intended bargain.  Do not chase it.
+
+The second campaign lost nothing: `fuzz_eventloop` ends at 7655 of the
+7656 edges its campaign corpus reaches, and `fuzz_tls` at 6844 against
+that corpus' 6770 -- above it, because a `fuzz_tls` cover measured
+inside the tree also gets the other harnesses' inputs, which are
+uninteresting to it but not inert.  Both harnesses are deterministic
+enough here that all three `-runs=0` measurements agreed to within two
+edges.
 
 To regenerate after a long campaign: keep the campaign corpus, sweep it
 for oracle-firing inputs, run two independent merges over what is left,
-recompute the cover, and replace this directory wholesale.  Check the
-result the same way it was checked here -- replay both the campaign
-corpus and the distilled set with `-runs=0` three times each and compare
-the `INITED cov:` figures, because a single measurement of either is
-worth a few edges of noise -- and finish with `make check-corpus`.
+recompute the cover against everything that stays in the tree, and
+replace the affected harnesses' files wholesale.  Check the result the
+same way it was checked here -- replay both the campaign corpus and the
+distilled set with `-runs=0` three times each and compare the
+`INITED cov:` figures, because a single measurement of either is worth a
+few edges of noise -- and finish with `make check-corpus`.
+
+Measure *every* harness before and after, not just the ones being
+regenerated: dropping an input removes it from the other seven as well.
+Replacing the 320 first-campaign `fuzz_eventloop` inputs with 248 new
+ones moved the other six harnesses by at most three edges, which is
+noise, but that is a thing to confirm rather than assume.  Note also
+that `make check-corpus` is a weaker gate than it looks on a tree
+configured without `--enable-asserts`, where `mhd_assert()` compiles
+away entirely; the campaign build has them, so inputs that survived the
+merges have already been through the stronger one.
 
 
 known-findings/
