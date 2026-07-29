@@ -1583,7 +1583,9 @@ typedef void
  * @param username the user name claimed by the other side
  * @param[out] psk to be set to the pre-shared-key; should be allocated with malloc(),
  *                 will be freed by MHD
- * @param[out] psk_size to be set to the number of bytes in @a psk
+ * @param[out] psk_size to be set to the number of bytes in @a psk;
+ *                 must be at least 16 (RFC 4279 section 7.1), otherwise
+ *                 MHD discards the key and fails the authentication
  * @return 0 on success, -1 on errors
  */
 typedef int

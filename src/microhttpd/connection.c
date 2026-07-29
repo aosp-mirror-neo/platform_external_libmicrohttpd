@@ -8293,7 +8293,6 @@ MHD_queue_response (struct MHD_Connection *connection,
 #ifdef UPGRADE_SUPPORT
   if (NULL != response->upgrade_handler)
   {
-    struct MHD_HTTP_Res_Header *conn_header;
     if (0 == (daemon->options & MHD_ALLOW_UPGRADE))
     {
 #ifdef HAVE_MESSAGES
@@ -8321,12 +8320,16 @@ MHD_queue_response (struct MHD_Connection *connection,
 #endif
       return MHD_NO;
     }
-    conn_header = response->first_header;
-    mhd_assert (NULL != conn_header);
-    mhd_assert (MHD_str_equal_caseless_ (conn_header->header,
+    /* MHD_add_response_header() keeps the "Connection" header first, so
+       response->first_header could be read directly here; look it up by
+       name instead, so that this does not silently break if that ever
+       stops being true. */
+    mhd_assert (NULL != response->first_header);
+    mhd_assert (MHD_str_equal_caseless_ (response->first_header->header,
                                          MHD_HTTP_HEADER_CONNECTION));
-    if (! MHD_str_has_s_token_caseless_ (conn_header->value,
-                                         "upgrade"))
+    if (! MHD_check_response_header_s_token_ci (response,
+                                                MHD_HTTP_HEADER_CONNECTION,
+                                                "upgrade"))
     {
 #ifdef HAVE_MESSAGES
       MHD_DLOG (daemon,

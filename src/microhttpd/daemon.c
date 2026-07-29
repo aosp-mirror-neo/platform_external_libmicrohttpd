@@ -2484,6 +2484,16 @@ MHD_tls_push_func_ (gnutls_transport_ptr_t trnsp,
 
 
 /**
+ * The shortest pre-shared key #MHD_OPTION_GNUTLS_PSK_CRED_HANDLER may
+ * hand back, in bytes.  RFC 4279 section 7.1 requires at least 16 bytes
+ * of entropy in a PSK and recommends the length of the hash of the
+ * negotiated cipher suite; anything shorter is brute-forceable offline
+ * from a single recorded handshake, so MHD refuses it rather than let
+ * the application weaken the connection by accident.
+ */
+#define MHD_PSK_MIN_SIZE 16
+
+/**
  * Function called by GNUtls to obtain the PSK for a given session.
  *
  * @param session the session to lookup PSK for
@@ -2528,6 +2538,15 @@ psk_gnutls_adapter (gnutls_session_t session,
                                   &app_psk,
                                   &app_psk_size))
     return -1;
+  if (MHD_PSK_MIN_SIZE > app_psk_size)
+  {
+#ifdef HAVE_MESSAGES
+    MHD_DLOG (daemon,
+              _ ("PSK authentication failed: PSK too short.\n"));
+#endif
+    free (app_psk);
+    return -1;
+  }
   if (UINT_MAX < app_psk_size)
   {
 #ifdef HAVE_MESSAGES
@@ -2537,6 +2556,9 @@ psk_gnutls_adapter (gnutls_session_t session,
     free (app_psk);
     return -1;
   }
+  /* @a app_psk_size is at least MHD_PSK_MIN_SIZE here, so this is never
+     gnutls_malloc(0) -- whose result is implementation defined and would
+     be reported below as an allocation failure. */
   if (NULL == (key->data = gnutls_malloc (app_psk_size)))
   {
 #ifdef HAVE_MESSAGES
@@ -9193,12 +9215,19 @@ close_all_connections (struct MHD_Daemon *daemon)
   mhd_assert (daemon->shutdown);
 
 #ifdef MHD_USE_THREADS
-/* Remove externally added new connections that are
-   * not processed by the daemon thread. */
+/* Remove new connections that MHD_add_connection() queued and that were
+   * never processed.  This is not limited to daemons with an internal
+   * polling thread: internal_add_connection() queues whenever the daemon
+   * is thread-safe, which is every daemon that was not started with
+   * MHD_USE_NO_THREAD_SAFETY, and new_connections_list_process_()
+   * asserts the same condition.  An application driving an external
+   * event loop can therefore call MHD_add_connection() and then
+   * MHD_stop_daemon() before the next MHD_run(), and this list is what
+   * holds the connection at that point. */
   MHD_mutex_lock_chk_ (&daemon->new_connections_mutex);
   while (NULL != (pos = daemon->new_connections_tail))
   {
-    mhd_assert (MHD_D_IS_USING_THREADS_ (daemon));
+    mhd_assert (MHD_D_IS_THREAD_SAFE_ (daemon));
     DLL_remove (daemon->new_connections_head,
                 daemon->new_connections_tail,
                 pos);
