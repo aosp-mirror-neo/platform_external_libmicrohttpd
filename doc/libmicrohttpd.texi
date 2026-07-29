@@ -931,6 +931,8 @@ Pass a pointer to callback of type
 @code{MHD_PskServerCredentialsCallback} and a closure.
 The function will be called to
 retrieve the shared key for a given username.
+The key must be at least 16 bytes long, as required by RFC 4279
+section 7.1; MHD fails the authentication for a shorter one.
 
 @item MHD_OPTION_DIGEST_AUTH_RANDOM
 @cindex digest auth
