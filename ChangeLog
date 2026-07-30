@@ -1,3 +1,12 @@
+Thu Jul 30 05:32:00 PM CEST 2026
+    Enfocing a minimal size on the PSK.
+    Fix support for red zones in memorypool.
+    Fix rare over-writing of HTTP version string with network data
+    after parsing header.
+    Fix rare crash from adding connection manually followed by
+    immediate daemon shutdown.
+    Releasing GNU libmicrohttpd 1.0.9. -CG
+
 Tue Jul 28 06:12:03 PM CEST 2026
     Fixing additional vulnerabilities inspired by reviewing the
     code for similar issues like the ones reported by A. Ramos;
