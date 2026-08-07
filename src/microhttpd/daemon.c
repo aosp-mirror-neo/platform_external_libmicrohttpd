@@ -2058,6 +2058,53 @@ connection_get_wait (struct MHD_Connection *c)
 
 
 /**
+ * Complete the resume of a connection that has its own thread.
+ *
+ * This is the thread-per-connection counterpart of
+ * resume_suspended_connections(): the connection's own thread does the
+ * bookkeeping for itself instead of waiting for the daemon's thread to
+ * do it.  That is what makes the wake-up reliable -- the notification
+ * is sent to the connection's own ITC and is acted upon by the only
+ * thread that reads it, so it can neither be consumed by the daemon's
+ * thread nor be missed between the check of @e resuming and the wait.
+ *
+ * @param connection the suspended connection that is to be resumed,
+ *                   must have @e resuming set
+ */
+static void
+resume_connection_own_thread_ (struct MHD_Connection *connection)
+{
+  struct MHD_Daemon *const daemon = connection->daemon;
+
+  mhd_assert (MHD_D_IS_USING_THREAD_PER_CONN_ (daemon));
+  mhd_assert (! MHD_D_IS_USING_EPOLL_ (daemon));
+#ifdef UPGRADE_SUPPORT
+  mhd_assert (NULL == connection->urh);
+#endif /* UPGRADE_SUPPORT */
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_lock_chk_ (&daemon->cleanup_connection_mutex);
+#endif
+  mhd_assert (connection->suspended);
+  mhd_assert (connection->resuming);
+  DLL_remove (daemon->suspended_connections_head,
+              daemon->suspended_connections_tail,
+              connection);
+  connection->suspended = false;
+  DLL_insert (daemon->connections_head,
+              daemon->connections_tail,
+              connection);
+  connection->resuming = false;
+#if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
+  MHD_mutex_unlock_chk_ (&daemon->cleanup_connection_mutex);
+#endif
+  /* Drop the notification that led here, as well as any notification
+     left over from a resume that was undone by a suspend before this
+     thread got to see it. */
+  MHD_itc_clear_ (connection->resume_itc);
+}
+
+
+/**
  * Main function of the thread that handles an individual
  * connection when #MHD_USE_THREAD_PER_CONNECTION is set.
  *
@@ -2109,10 +2156,20 @@ thread_main_handle_connection (void *data)
     {
       /* Connection was suspended, wait for resume. */
       was_suspended = true;
+      if (con->resuming)
+      {
+        /* The application resumed this connection.  Complete the resume
+           right here: this thread is the only one that handles this
+           connection, and doing it here is what keeps the wake-up below
+           free of lost-notification races. */
+        resume_connection_own_thread_ (con);
+        continue;
+      }
+      mhd_assert (MHD_ITC_IS_VALID_ (con->resume_itc));
       if (! use_poll)
       {
         FD_ZERO (&rs);
-        if (! MHD_add_to_fd_set_ (MHD_itc_r_fd_ (daemon->itc),
+        if (! MHD_add_to_fd_set_ (MHD_itc_r_fd_ (con->resume_itc),
                                   &rs,
                                   NULL,
                                   FD_SETSIZE))
@@ -2123,7 +2180,7 @@ thread_main_handle_connection (void *data)
   #endif
           goto exit;
         }
-        if (0 > MHD_SYS_select_ (MHD_itc_r_fd_ (daemon->itc) + 1,
+        if (0 > MHD_SYS_select_ (MHD_itc_r_fd_ (con->resume_itc) + 1,
                                  &rs,
                                  NULL,
                                  NULL,
@@ -2146,7 +2203,7 @@ thread_main_handle_connection (void *data)
       else     /* use_poll */
       {
         p[0].events = POLLIN;
-        p[0].fd = MHD_itc_r_fd_ (daemon->itc);
+        p[0].fd = MHD_itc_r_fd_ (con->resume_itc);
         p[0].revents = 0;
         if (0 > MHD_sys_poll_ (p,
                                1,
@@ -2163,7 +2220,7 @@ thread_main_handle_connection (void *data)
         }
       }
 #endif /* HAVE_POLL */
-      MHD_itc_clear_ (daemon->itc);
+      MHD_itc_clear_ (con->resume_itc);
       continue; /* Check again for resume. */
     }           /* End of "suspended" branch. */
 
@@ -2751,6 +2808,29 @@ new_connection_prepare_ (struct MHD_Daemon *daemon,
   if (0 != connection->connection_timeout_ms)
     connection->last_activity = MHD_monotonic_msec_counter ();
 
+  MHD_itc_set_invalid_ (connection->resume_itc);
+  if ( (MHD_D_IS_USING_THREAD_PER_CONN_ (daemon)) &&
+       (0 != (daemon->options & MHD_TEST_ALLOW_SUSPEND_RESUME)) &&
+       (! MHD_itc_init_ (connection->resume_itc)) )
+  {
+    eno = errno;
+#ifdef HAVE_MESSAGES
+    MHD_DLOG (daemon,
+              _ ("Failed to create inter-thread communication channel " \
+                 "for the connection: %s\n"),
+              MHD_itc_last_strerror_ ());
+#endif
+    MHD_socket_close_chk_ (client_socket);
+    MHD_ip_limit_del (daemon,
+                      addr,
+                      addrlen);
+    if (NULL != connection->addr)
+      free (connection->addr);
+    free (connection);
+    errno = eno;
+    return NULL;
+  }
+
   if (0 == (daemon->options & MHD_USE_TLS))
   {
     /* set default connection handlers  */
@@ -2931,6 +3011,8 @@ new_connection_close_ (struct MHD_Daemon *daemon,
   }
 #endif /* HTTPS_SUPPORT */
   MHD_socket_close_chk_ (connection->socket_fd);
+  if (MHD_ITC_IS_VALID_ (connection->resume_itc))
+    MHD_itc_destroy_chk_ (connection->resume_itc);
   MHD_ip_limit_del (daemon,
                     connection->addr,
                     connection->addr_len);
@@ -3460,6 +3542,7 @@ _MHD_EXTERN void
 MHD_resume_connection (struct MHD_Connection *connection)
 {
   struct MHD_Daemon *daemon = connection->daemon;
+  bool own_thread; /**< The connection's own thread completes the resume */
 #if defined(MHD_USE_THREADS)
   mhd_assert (NULL == daemon->worker_pool);
 #endif /* MHD_USE_THREADS */
@@ -3471,12 +3554,35 @@ MHD_resume_connection (struct MHD_Connection *connection)
   MHD_mutex_lock_chk_ (&daemon->cleanup_connection_mutex);
 #endif
   connection->resuming = true;
-  daemon->resuming = true;
+  /* An "upgraded" connection is resumed only to be moved to the cleanup
+     list, which is the daemon thread's job even with a thread per
+     connection. */
+  own_thread = MHD_D_IS_USING_THREAD_PER_CONN_ (daemon)
+#ifdef UPGRADE_SUPPORT
+               && (NULL == connection->urh)
+#endif /* UPGRADE_SUPPORT */
+  ;
+  if (! own_thread)
+    daemon->resuming = true;
 #if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
   MHD_mutex_unlock_chk_ (&daemon->cleanup_connection_mutex);
 #endif
-  if ( (MHD_ITC_IS_VALID_ (daemon->itc)) &&
-       (! MHD_itc_activate_ (daemon->itc, "r")) )
+  if (own_thread)
+  {
+    /* Wake the connection's own thread.  See the description of
+       @e resume_itc for why the daemon-wide ITC will not do. */
+    mhd_assert (MHD_ITC_IS_VALID_ (connection->resume_itc));
+    if (! MHD_itc_activate_ (connection->resume_itc, "r"))
+    {
+#ifdef HAVE_MESSAGES
+      MHD_DLOG (daemon,
+                _ ("Failed to signal resume via the connection's " \
+                   "inter-thread communication channel.\n"));
+#endif
+    }
+  }
+  else if ( (MHD_ITC_IS_VALID_ (daemon->itc)) &&
+            (! MHD_itc_activate_ (daemon->itc, "r")) )
   {
 #ifdef HAVE_MESSAGES
     MHD_DLOG (daemon,
@@ -4223,6 +4329,8 @@ MHD_cleanup_connections (struct MHD_Daemon *daemon)
     }
     if (MHD_INVALID_SOCKET != pos->socket_fd)
       MHD_socket_close_chk_ (pos->socket_fd);
+    if (MHD_ITC_IS_VALID_ (pos->resume_itc))
+      MHD_itc_destroy_chk_ (pos->resume_itc);
     if (NULL != pos->addr)
       free (pos->addr);
     free (pos);

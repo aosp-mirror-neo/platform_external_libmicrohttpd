@@ -59,6 +59,7 @@ endif
 THREAD_ONLY_TESTS += \
   test_get_wait \
   test_get_wait11 \
+  test_suspend_resume_thread \
   $(EMPTY_ITEM)
 
 if HEAVY_TESTS
@@ -270,6 +271,13 @@ test_quiesce_stream_SOURCES = \
 test_quiesce_stream_CFLAGS = \
   $(AM_CFLAGS) $(PTHREAD_CFLAGS)
 test_quiesce_stream_LDADD = \
+  $(PTHREAD_LIBS) $(LDADD)
+
+test_suspend_resume_thread_SOURCES = \
+  test_suspend_resume_thread.c
+test_suspend_resume_thread_CFLAGS = \
+  $(AM_CFLAGS) $(PTHREAD_CFLAGS)
+test_suspend_resume_thread_LDADD = \
   $(PTHREAD_LIBS) $(LDADD)
 
 test_callback_SOURCES = \
