@@ -1351,6 +1351,21 @@ call_handlers (struct MHD_Connection *con,
   if (con->tls_read_ready)
     read_ready = true;
 #endif /* HTTPS_SUPPORT */
+  if (con->resumed)
+  {
+    /* The connection was resumed since its states were last updated,
+       so 'con->event_loop_info' still describes the state the
+       connection was in before it was suspended -- see the field's
+       description.  Dispatching on it would, for instance, call
+       MHD_connection_handle_write() on a connection whose content
+       reader has just reported that it has no data yet, which is not a
+       state the write handler has an action for. */
+    con->resumed = false;
+    ret = MHD_connection_handle_idle (con);
+    if (MHD_NO == ret)
+      return ret;  /* Connection died and was cleaned up. */
+    states_info_processed = true;
+  }
   if ( (0 != (MHD_EVENT_LOOP_INFO_READ & con->event_loop_info)) &&
        (read_ready || (force_close && con->sk_nonblck)) )
   {
@@ -3577,6 +3592,16 @@ resume_suspended_connections (struct MHD_Daemon *daemon)
                   pos);
       if (! used_thr_p_c)
       {
+        /* The states of a suspended connection are not updated, so they
+           are stale now that it is running again.  Updating them here
+           would mean running the state machine under the cleanup mutex,
+           which is what 0ecf4f26e4c1a4c03d66e1d04bf4cae62bd236a0 backed
+           out of; flag the connection instead and let call_handlers()
+           update it before it acts on @e event_loop_info.  Thread-per-
+           connection does the same for itself, in
+           thread_main_handle_connection(). */
+        pos->resumed = true;
+
         /* Reset timeout timer on resume. */
         if (0 != pos->connection_timeout_ms)
           pos->last_activity = MHD_monotonic_msec_counter ();

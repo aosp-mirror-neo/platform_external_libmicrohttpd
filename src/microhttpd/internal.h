@@ -1627,6 +1627,21 @@ struct MHD_Connection
   volatile bool resuming;
 
   /**
+   * Has the connection been resumed without its states having been
+   * updated since?
+   *
+   * #MHD_connection_update_event_loop_info() deliberately does not
+   * touch a suspended connection, so whatever the application did
+   * while the connection was suspended -- queueing a response, or the
+   * content reader reporting that it has no data yet and moving the
+   * connection to #MHD_CONNECTION_NORMAL_BODY_UNREADY -- leaves
+   * @e event_loop_info describing the state from before the
+   * suspension.  The event loop must not act on that stale value; see
+   * the use in call_handlers().
+   */
+  bool resumed;
+
+  /**
    * Special member to be returned by #MHD_get_connection_info()
    */
   union MHD_ConnectionInfo connection_info_dummy;
