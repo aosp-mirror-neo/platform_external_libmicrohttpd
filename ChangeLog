@@ -1,3 +1,11 @@
+Fri Aug  7 10:15:01 PM CEST 2026
+    Fix race in thread-per-connection mode on wake-up signal
+    between daemon and thread that could result in lost wake-ups
+    and thus connections that did not finish processing.
+    Fix rare assertion failure in relation to suspend-and-resume
+    processing (harmless if assertions were turned off).
+    Releasing GNU libmicrohttpd 1.0.10. -CG
+
 Thu Jul 30 05:32:00 PM CEST 2026
     Enfocing a minimal size on the PSK.
     Fix support for red zones in memorypool.

@@ -33,13 +33,13 @@
  * Bad request page.
  */
 #define BAD_REQUEST_ERROR \
-  "<html><head><title>Illegal request</title></head><body>Go away.</body></html>"
+        "<html><head><title>Illegal request</title></head><body>Go away.</body></html>"
 
 /**
  * Invalid JSON page.
  */
 #define NOT_FOUND_ERROR \
-  "<html><head><title>Not found</title></head><body>Go away.</body></html>"
+        "<html><head><title>Not found</title></head><body>Go away.</body></html>"
 
 
 /**
@@ -177,7 +177,6 @@ create_response (void *cls,
   struct Request *request = *req_cls;
   struct MHD_Response *response;
   enum MHD_Result ret;
-  unsigned int i;
 
   (void) cls;               /* Unused. Silence compiler warning. */
   (void) version;           /* Unused. Silence compiler warning. */
