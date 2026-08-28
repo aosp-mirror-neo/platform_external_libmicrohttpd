@@ -1847,6 +1847,55 @@ process_urh (struct MHD_UpgradeResponseHandle *urh)
 
 #endif /* HTTPS_SUPPORT  && UPGRADE_SUPPORT */
 
+
+/**
+ * Get maximum wait period for the connection (the amount of time left before
+ * connection time out)
+ * @param c the connection to check
+ * @return the maximum number of millisecond before the connection must be
+ *         processed again.
+ */
+static uint64_t
+connection_get_wait (struct MHD_Connection *c)
+{
+  const uint64_t now = MHD_monotonic_msec_counter ();
+  const uint64_t since_actv = now - c->last_activity;
+  const uint64_t timeout = c->connection_timeout_ms;
+  uint64_t mseconds_left;
+
+  mhd_assert (0 != timeout);
+  /* Keep the next lines in sync with #connection_check_timedout() to avoid
+   * undesired side-effects like busy-waiting. */
+  if (timeout < since_actv)
+  {
+    if (UINT64_MAX / 2 < since_actv)
+    {
+      const uint64_t jump_back = c->last_activity - now;
+      /* Very unlikely that it is more than quarter-million years pause.
+       * More likely that system clock jumps back. */
+      if (5000 >= jump_back)
+      { /* Jump back is less than 5 seconds, try to recover. */
+        return 100; /* Set wait time to 0.1 seconds */
+      }
+      /* Too large jump back */
+    }
+    return 0; /* Connection has timed out */
+  }
+  else if (since_actv == timeout)
+  {
+    /* Exact match for timeout and time from last activity.
+     * Maybe this is just a precise match or this happens because the timer
+     * resolution is too low.
+     * Set wait time to 0.1 seconds to avoid busy-waiting with low
+     * timer resolution as connection is not timed-out yet. */
+    return 100;
+  }
+  mseconds_left = timeout - since_actv;
+
+  return mseconds_left;
+}
+
+
 #if defined(MHD_USE_POSIX_THREADS) || defined(MHD_USE_W32_THREADS)
 #ifdef UPGRADE_SUPPORT
 /**
@@ -2007,54 +2056,6 @@ thread_main_connection_upgrade (struct MHD_Connection *con)
 
 
 #endif /* UPGRADE_SUPPORT */
-
-
-/**
- * Get maximum wait period for the connection (the amount of time left before
- * connection time out)
- * @param c the connection to check
- * @return the maximum number of millisecond before the connection must be
- *         processed again.
- */
-static uint64_t
-connection_get_wait (struct MHD_Connection *c)
-{
-  const uint64_t now = MHD_monotonic_msec_counter ();
-  const uint64_t since_actv = now - c->last_activity;
-  const uint64_t timeout = c->connection_timeout_ms;
-  uint64_t mseconds_left;
-
-  mhd_assert (0 != timeout);
-  /* Keep the next lines in sync with #connection_check_timedout() to avoid
-   * undesired side-effects like busy-waiting. */
-  if (timeout < since_actv)
-  {
-    if (UINT64_MAX / 2 < since_actv)
-    {
-      const uint64_t jump_back = c->last_activity - now;
-      /* Very unlikely that it is more than quarter-million years pause.
-       * More likely that system clock jumps back. */
-      if (5000 >= jump_back)
-      { /* Jump back is less than 5 seconds, try to recover. */
-        return 100; /* Set wait time to 0.1 seconds */
-      }
-      /* Too large jump back */
-    }
-    return 0; /* Connection has timed out */
-  }
-  else if (since_actv == timeout)
-  {
-    /* Exact match for timeout and time from last activity.
-     * Maybe this is just a precise match or this happens because the timer
-     * resolution is too low.
-     * Set wait time to 0.1 seconds to avoid busy-waiting with low
-     * timer resolution as connection is not timed-out yet. */
-    return 100;
-  }
-  mseconds_left = timeout - since_actv;
-
-  return mseconds_left;
-}
 
 
 /**
