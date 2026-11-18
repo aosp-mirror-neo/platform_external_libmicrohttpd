@@ -5865,6 +5865,11 @@ MHD_epoll (struct MHD_Daemon *daemon,
                              events,
                              MAX_EVENTS,
                              timeout_ms);
+    /* A full batch may have been the last of the pending events: the next
+       call only drains what is left, it must not wait.  With edge-triggered
+       connections nothing new arrives until they are processed, so waiting
+       here would stall every connection until the timeout. */
+    timeout_ms = 0;
     if (-1 == num_events)
     {
       const int err = MHD_socket_get_error_ ();
