@@ -6524,6 +6524,15 @@ get_req_header (struct MHD_Connection *c,
           c->rq.hdrs.hdr.value_start = p;
 #ifndef MHD_FAVOR_SMALL_CODE
         c->rq.hdrs.hdr.ws_start = 0; /* Not on whitespace anymore */
+        /* The characters above the space character that follow are all
+           processed exactly as this one: skip them in one tight loop.
+           Everything else (CR, LF, whitespace, NUL, other control
+           characters) goes through the loop above. */
+        do
+          p++;
+        while ((p < c->read_buffer_offset) &&
+               (((unsigned char) c->read_buffer[p]) > ' '));
+        continue;
 #endif /* ! MHD_FAVOR_SMALL_CODE */
       }
 #ifdef MHD_FAVOR_SMALL_CODE
