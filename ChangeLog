@@ -1,3 +1,10 @@
+Thu Nov 19 11:50:38 PM CET 2026
+    Fix hang until timeout when epoll() would return exactly
+    a full batch of events. Optimize header parsing, resulting
+    in non-trivial speed-up for request handling. Both
+    issues reported and fixed by Ken Zangelin, thanks a lot!
+    Releasing GNU libmicrohttpd 1.0.11. -CG
+
 Fri Aug  7 10:15:01 PM CEST 2026
     Fix race in thread-per-connection mode on wake-up signal
     between daemon and thread that could result in lost wake-ups
