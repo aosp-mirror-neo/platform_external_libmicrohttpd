@@ -2,7 +2,7 @@ Thu Nov 19 11:50:38 PM CET 2026
 Released GNU libmicrohttpd 1.0.11.
 
     This is a bugfix release, fixing a minor bug
-    and improving performance,cutting get_req_headers()
+    and improving performance, cutting get_req_headers()
     from ~22 to ~5 instructions per header-byte value
     (on x86-64).
 
