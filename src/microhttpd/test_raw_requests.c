@@ -1873,12 +1873,29 @@ run_entry (const struct corpus_entry *e, unsigned long *split_counter)
   }
   else
   {
-    /* The client side numbers are not reproducible under memory pressure;
-       stop as soon as the first reply is complete (or as soon as MHD closes
+    /* The client side numbers are not reproducible under memory pressure:
+       a split may leave less unprocessed data in the read buffer than the
+       unsplit run and thus let MHD serve more of the stream, for example
+       answer all pipelined requests and keep the connection alive.
+       Stop as soon as the first reply is complete (or as soon as MHD closes
        the connection if it does not reply at all) and only compare the
        server side observations. */
-    min_resp = (0 != ref_resp) ? 1 : 0;
-    want_close = (0 != ref_resp) ? 0 : 1;
+    if ((0 == ref_resp) &&
+        (1 == e->n_req) &&
+        (1 == obs_get_uint (&ref, "nreq=")))
+    {
+      /* The only request has been parsed completely, but MHD has failed to
+         reply.  The read buffer is empty when the reply is built, so the
+         reply stage does not depend on the split: every split must make MHD
+         close the connection as well. */
+      min_resp = 0;
+      want_close = 1;
+    }
+    else
+    {
+      min_resp = 1;
+      want_close = 0;
+    }
     stride = 3; /* Sample: these runs are slower and less informative */
   }
 
