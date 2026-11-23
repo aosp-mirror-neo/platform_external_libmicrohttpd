@@ -6709,6 +6709,7 @@ daemon_tls_priorities_init_append_inner_ (struct MHD_Daemon *daemon,
               sizeof(MHD_TlsBasePriotities) / sizeof(MHD_TlsBasePriotities[0]));
 
   res = GNUTLS_E_SUCCESS; /* Mute compiler warning */
+  err_pos = ""; /* Mute compiler warning */
 
   for (p = 0;
        p < sizeof(MHD_TlsBasePriotities) / sizeof(MHD_TlsBasePriotities[0]);
