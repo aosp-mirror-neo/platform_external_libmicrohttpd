@@ -2832,14 +2832,18 @@ build_connection_chunked_response_footer (struct MHD_Connection *connection)
   {
     if (MHD_FOOTER_KIND == pos->kind)
     {
+#ifdef _DEBUG
       size_t new_used_size; /* resulting size with this header */
+#endif /* _DEBUG */
       /* '4' is colon, space, linefeeds */
       /* Check available space using subtractions to avoid integer overflow. */
       if ( (buf_size - used_size < 4) ||
            (buf_size - used_size - 4 < pos->header_size) ||
            (buf_size - used_size - 4 - pos->header_size < pos->value_size) )
         return MHD_NO;
+#ifdef _DEBUG
       new_used_size = used_size + pos->header_size + pos->value_size + 4;
+#endif /* _DEBUG */
       memcpy (buf + used_size, pos->header, pos->header_size);
       used_size += pos->header_size;
       buf[used_size++] = ':';
@@ -2848,7 +2852,9 @@ build_connection_chunked_response_footer (struct MHD_Connection *connection)
       used_size += pos->value_size;
       buf[used_size++] = '\r';
       buf[used_size++] = '\n';
+#ifdef _DEBUG
       mhd_assert (used_size == new_used_size);
+#endif /* _DEBUG */
     }
   }
   if (used_size + 2 > buf_size)
