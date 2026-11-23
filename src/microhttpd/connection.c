@@ -6442,18 +6442,43 @@ get_req_header (struct MHD_Connection *c,
       if ( (! c->rq.hdrs.hdr.name_end_found) &&
            (! c->rq.hdrs.hdr.starts_with_ws) )
       {
-        /* Processing the header (field) name */
-        if ( (! allow_extended_charset) &&
-             (':' != chr) &&
-             (! char_legal_in_field_name (chr)) )
-        {
-          transmit_error_response_static (c,
-                                          MHD_HTTP_BAD_REQUEST,
-                                          ERR_RSP_INVALID_CHAR_IN_FIELD_NAME);
-          return MHD_HDR_LINE_READING_DATA_ERROR;
-        }
+        /* Processing the header (field) string before the header value */
 
-        if (':' == chr)
+        if (':' != chr)
+        {
+          /* Processing the header (field) name */
+          if (0 != c->rq.hdrs.hdr.ws_start)
+          {
+            /* End of the whitespace in header (field) name */
+            mhd_assert (allow_wsp_in_name || allow_wsp_before_colon);
+            if (! allow_wsp_in_name)
+            {
+              if (! process_footers)
+                transmit_error_response_static (c,
+                                                MHD_HTTP_BAD_REQUEST,
+                                                ERR_RSP_WSP_IN_HEADER_NAME);
+              else
+                transmit_error_response_static (c,
+                                                MHD_HTTP_BAD_REQUEST,
+                                                ERR_RSP_WSP_IN_FOOTER_NAME);
+
+              return MHD_HDR_LINE_READING_DATA_ERROR; /* Error in the request */
+            }
+#ifndef MHD_FAVOR_SMALL_CODE
+            c->rq.hdrs.hdr.ws_start = 0; /* Not on whitespace anymore */
+#endif /* ! MHD_FAVOR_SMALL_CODE */
+          }
+          if ( (! allow_extended_charset) &&
+               (! char_legal_in_field_name (chr)) )
+          {
+            transmit_error_response_static (c,
+                                            MHD_HTTP_BAD_REQUEST,
+                                            ERR_RSP_INVALID_CHAR_IN_FIELD_NAME);
+            return MHD_HDR_LINE_READING_DATA_ERROR;
+          }
+
+        }
+        else
         {
           if (0 == c->rq.hdrs.hdr.ws_start)
             c->rq.hdrs.hdr.name_len = p;
@@ -6491,30 +6516,6 @@ get_req_header (struct MHD_Connection *c,
           }
           c->rq.hdrs.hdr.name_end_found = true;
           c->read_buffer[c->rq.hdrs.hdr.name_len] = 0; /* Zero-terminate the name */
-        }
-        else
-        {
-          if (0 != c->rq.hdrs.hdr.ws_start)
-          {
-            /* End of the whitespace in header (field) name */
-            mhd_assert (allow_wsp_in_name || allow_wsp_before_colon);
-            if (! allow_wsp_in_name)
-            {
-              if (! process_footers)
-                transmit_error_response_static (c,
-                                                MHD_HTTP_BAD_REQUEST,
-                                                ERR_RSP_WSP_IN_HEADER_NAME);
-              else
-                transmit_error_response_static (c,
-                                                MHD_HTTP_BAD_REQUEST,
-                                                ERR_RSP_WSP_IN_FOOTER_NAME);
-
-              return MHD_HDR_LINE_READING_DATA_ERROR; /* Error in the request */
-            }
-#ifndef MHD_FAVOR_SMALL_CODE
-            c->rq.hdrs.hdr.ws_start = 0; /* Not on whitespace anymore */
-#endif /* ! MHD_FAVOR_SMALL_CODE */
-          }
         }
       }
       else
