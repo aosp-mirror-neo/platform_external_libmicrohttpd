@@ -176,6 +176,7 @@ testInternalGet (void)
      setting NOSIGNAL results in really weird
      crashes on my system!*/
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
     fprintf (stderr,
@@ -248,6 +249,7 @@ testMultithreadedGet (void)
      setting NOSIGNAL results in really weird
      crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
     fprintf (stderr,
@@ -321,6 +323,7 @@ testMultithreadedPoolGet (void)
      setting NOSIGNAL results in really weird
      crashes on my system!*/
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
     fprintf (stderr,
@@ -410,6 +413,7 @@ testExternalGet (int thread_unsafe)
      setting NOSIGNAL results in really weird
      crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
 
 
   multi = curl_multi_init ();
@@ -604,6 +608,7 @@ testUnknownPortGet (void)
      setting NOSIGNAL results in really weird
      crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
     fprintf (stderr,

@@ -227,6 +227,7 @@ testInternalPost (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
     fprintf (stderr,
@@ -304,6 +305,7 @@ testMultithreadedPost (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
     fprintf (stderr,
@@ -381,6 +383,7 @@ testMultithreadedPoolPost (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
     fprintf (stderr,
@@ -473,6 +476,7 @@ testExternalPost (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
 
 
   multi = curl_multi_init ();
@@ -747,6 +751,7 @@ testMultithreadedPostCancelPart (int flags)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
 
   if (flags & FLAG_CHUNKED)
     headers = curl_slist_append (headers, "Transfer-Encoding: chunked");

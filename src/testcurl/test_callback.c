@@ -174,6 +174,7 @@ main (int argc, char **argv)
   curl_easy_setopt (c, CURLOPT_TIMEOUT, 150L);
   curl_easy_setopt (c, CURLOPT_CONNECTTIMEOUT, 150L);
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   multi = curl_multi_init ();
   if (multi == NULL)
   {

@@ -79,7 +79,8 @@ fork_curl (const char *url)
   ret = fork ();
   if (ret != 0)
     return ret;
-  execlp ("curl", "curl", "-s", "-N", "-o", "/dev/null", "-GET", url, NULL);
+  execlp ("curl", "curl", "-s", "-N", "--proxy", "", "-o", "/dev/null",
+          "-GET", url, NULL);
   fprintf (stderr,
            "Failed to exec curl: %s\n",
            strerror (errno));

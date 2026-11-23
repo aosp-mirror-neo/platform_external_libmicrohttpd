@@ -234,7 +234,7 @@ main (void)
   }
   snprintf (command_line,
             sizeof (command_line),
-            "curl -s http://127.0.0.1:%u",
+            "curl -s --proxy \"\" http://127.0.0.1:%u",
             (unsigned int) port);
 
   if (0 != system (command_line))

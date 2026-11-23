@@ -184,6 +184,7 @@ testMultithreadedGet (void)
        *   setting NOSIGNAL results in really weird
        *   crashes on my system! */
       curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+      curl_easy_setopt (c, CURLOPT_PROXY, "");
 
       errornum = curl_easy_perform (c);
       if (CURLE_OK == errornum)
@@ -294,6 +295,7 @@ testMultithreadedPoolGet (void)
        *   setting NOSIGNAL results in really weird
        *   crashes on my system! */
       curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+      curl_easy_setopt (c, CURLOPT_PROXY, "");
 
       errornum = curl_easy_perform (c);
       if ( ( (CURLE_OK != errornum) && (i <  2) ) ||

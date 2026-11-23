@@ -144,6 +144,7 @@ main (void)
             (unsigned int) port);
   curl_easy_setopt (curl, CURLOPT_URL, url);
   curl_easy_setopt (curl, CURLOPT_WRITEFUNCTION, write_data);
+  curl_easy_setopt (curl, CURLOPT_PROXY, "");
 
   success = curl_easy_perform (curl);
   if (success != 0)

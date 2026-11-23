@@ -150,6 +150,7 @@ testExternalGet (unsigned int flags)
      setting NOSIGNAL results in really weird
      crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
 
 
   multi = curl_multi_init ();

@@ -1419,6 +1419,7 @@ setupCURL (void *cbc, uint16_t port)
     libcurlErrorExitDesc ("curl_easy_init() failed");
 
   if ((CURLE_OK != curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L)) ||
+      (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, "")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_WRITEFUNCTION,
                                      &copyBuffer)) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_WRITEDATA, cbc)) ||

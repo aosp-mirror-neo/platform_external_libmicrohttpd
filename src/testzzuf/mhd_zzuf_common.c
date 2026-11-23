@@ -805,6 +805,7 @@ zzuf_curl_setup (uint16_t port,
   }
   if ((CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_URL, uri))) &&
       (CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L))) &&
+      (CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_PROXY, ""))) &&
       (CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_WRITEFUNCTION,
                                           &curl_sink_cb))) &&
       (CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_WRITEDATA, sink))) &&

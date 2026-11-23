@@ -166,7 +166,8 @@ check_tls_match_inner (enum know_gnutls_tls_id tls_ver_mhd,
        (errornum = curl_easy_setopt (c, CURLOPT_SSL_VERIFYHOST, 0L))) ||
       (CURLE_OK !=
        (errornum = curl_easy_setopt (c, CURLOPT_FAILONERROR, 1L))) ||
-      (CURLE_OK != (errornum = curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L))))
+      (CURLE_OK != (errornum = curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L))) ||
+      (CURLE_OK != (errornum = curl_easy_setopt (c, CURLOPT_PROXY, ""))))
   {
     fflush (stderr);
     fflush (stdout);

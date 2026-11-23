@@ -353,6 +353,7 @@ testPutInternalThread (unsigned int add_flag)
     externalErrorExit ();
   }
   if ((CURLE_OK != curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L)) ||
+      (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, "")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_URL,
                                      "http://127.0.0.1/hello_world")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_PORT, (long) port)) ||
@@ -459,6 +460,7 @@ testPutThreadPerConn (unsigned int add_flag)
     externalErrorExit ();
   }
   if ((CURLE_OK != curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L)) ||
+      (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, "")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_URL,
                                      "http://127.0.0.1/hello_world")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_PORT, (long) port)) ||
@@ -564,6 +566,7 @@ testPutThreadPool (unsigned int add_flag)
     externalErrorExit ();
   }
   if ((CURLE_OK != curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L)) ||
+      (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, "")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_URL,
                                      "http://127.0.0.1/hello_world")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_PORT, (long) port)) ||
@@ -676,6 +679,7 @@ testPutExternal (void)
     externalErrorExit ();
   }
   if ((CURLE_OK != curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L)) ||
+      (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, "")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_URL,
                                      "http://127.0.0.1/hello_world")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_PORT, (long) port)) ||

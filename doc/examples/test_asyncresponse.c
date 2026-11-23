@@ -298,6 +298,7 @@ fetch (const char *path,
   curl_easy_setopt (curl, CURLOPT_WRITEDATA, f);
   curl_easy_setopt (curl, CURLOPT_TIMEOUT, (long) REQUEST_TIMEOUT);
   curl_easy_setopt (curl, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (curl, CURLOPT_PROXY, "");
   clock_gettime (CLOCK_MONOTONIC,
                  &f->start);
   f->res = curl_easy_perform (curl);

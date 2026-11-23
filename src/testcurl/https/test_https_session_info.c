@@ -188,7 +188,8 @@ test_query_session (enum know_gnutls_tls_id tls_ver, uint16_t *pport)
        (errornum = curl_easy_setopt (c, CURLOPT_SSL_VERIFYHOST, 0L))) ||
       (CURLE_OK !=
        (errornum = curl_easy_setopt (c, CURLOPT_FAILONERROR, 1L))) ||
-      (CURLE_OK != (errornum = curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L))))
+      (CURLE_OK != (errornum = curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L))) ||
+      (CURLE_OK != (errornum = curl_easy_setopt (c, CURLOPT_PROXY, ""))))
   {
     curl_easy_cleanup (c);
     free (cbc.buf);

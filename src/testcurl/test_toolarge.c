@@ -571,6 +571,7 @@ curlEasyInitForTest (const char *queryPath, const char *method,
     libcurlErrorExitDesc ("curl_easy_init() failed");
 
   if ((CURLE_OK != curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L)) ||
+      (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, "")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_URL, queryPath)) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_PORT, (long) port)) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_WRITEFUNCTION,

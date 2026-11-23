@@ -1039,6 +1039,7 @@ setupCURL (struct CBC *cbc, uint16_t port
   if ((CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_URL,
                                           uri_to_use))) &&
       (CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L))) &&
+      (CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_PROXY, ""))) &&
       (CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_WRITEFUNCTION,
                                           &copyBuffer))) &&
       (CURLE_OK == (e = curl_easy_setopt (c, CURLOPT_WRITEDATA, cbc))) &&

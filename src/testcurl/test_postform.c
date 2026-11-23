@@ -330,6 +330,7 @@ testInternalPost (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (! add_test_form (c, &form))
   {
     fprintf (stderr, "libcurl form initialisation error.\n");
@@ -413,6 +414,7 @@ testMultithreadedPost (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (! add_test_form (c, &form))
   {
     fprintf (stderr, "libcurl form initialisation error.\n");
@@ -496,6 +498,7 @@ testMultithreadedPoolPost (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (! add_test_form (c, &form))
   {
     fprintf (stderr, "libcurl form initialisation error.\n");
@@ -594,6 +597,7 @@ testExternalPost (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (! add_test_form (c, &form))
   {
     fprintf (stderr, "libcurl form initialisation error.\n");

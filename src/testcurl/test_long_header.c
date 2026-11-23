@@ -117,6 +117,11 @@ setup_easy_handler_params (CURL *c, struct CBC *pcbc, const char *url,
     fprintf (stderr, "Failed to set CURLOPT_NOSIGNAL option.\n");
     return 0;
   }
+  if (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, ""))
+  {
+    fprintf (stderr, "Failed to set CURLOPT_PROXY option.\n");
+    return 0;
+  }
   if (CURLE_OK != curl_easy_setopt (c, CURLOPT_WRITEFUNCTION,
                                     &copyBuffer))
   {

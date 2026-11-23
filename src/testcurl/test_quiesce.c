@@ -378,6 +378,7 @@ setupCURL (void *cbc)
     libcurlErrorExitDesc ("curl_easy_init() failed");
 
   if ((CURLE_OK != curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L)) ||
+      (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, "")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_URL,
                                      "http://127.0.0.1" MHD_URI_BASE_PATH)) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_PORT, (long) global_port)) ||

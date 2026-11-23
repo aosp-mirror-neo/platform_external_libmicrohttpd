@@ -266,6 +266,7 @@ client_thread (void *cls)
   curl_easy_setopt (c, CURLOPT_TIMEOUT, 30L);
   curl_easy_setopt (c, CURLOPT_CONNECTTIMEOUT, 30L);
   curl_easy_setopt (c, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   errornum = curl_easy_perform (c);
   curl_easy_cleanup (c);
   if (CURLE_OK != errornum)

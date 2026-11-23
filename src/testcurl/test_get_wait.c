@@ -141,6 +141,7 @@ thread_gets (void *param)
     curl_easy_setopt (c, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_0);
   curl_easy_setopt (c, CURLOPT_CONNECTTIMEOUT, 15L);
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   for (i = 0; i < ROUNDS; i++)
   {
     if (CURLE_OK != (errornum = curl_easy_perform (c)))

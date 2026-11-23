@@ -501,6 +501,7 @@ curlEasyInitForTest (struct curlQueryParams *p,
     libcurlErrorExitDesc ("curl_easy_setopt() failed");
 
   if ((CURLE_OK != curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L)) ||
+      (CURLE_OK != curl_easy_setopt (c, CURLOPT_PROXY, "")) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_PORT, (long) p->queryPort)) ||
       (CURLE_OK != curl_easy_setopt (c, CURLOPT_WRITEFUNCTION,
                                      &copyBuffer)) ||

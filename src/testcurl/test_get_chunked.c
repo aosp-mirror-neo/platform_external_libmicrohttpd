@@ -361,6 +361,7 @@ testInternalGet (void)
   curl_easy_setopt (c, CURLOPT_HEADERFUNCTION, lcurl_hdr_callback);
   curl_easy_setopt (c, CURLOPT_HEADERDATA, &hdr_check);
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   if (conn_close)
   {
     h_list = curl_slist_append (h_list, "Connection: close");
@@ -440,6 +441,7 @@ testMultithreadedGet (void)
   curl_easy_setopt (c, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
   curl_easy_setopt (c, CURLOPT_CONNECTTIMEOUT, 150L);
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   hdr_check.found_chunked = 0;
   hdr_check.found_footer = 0;
   curl_easy_setopt (c, CURLOPT_HEADERFUNCTION, lcurl_hdr_callback);
@@ -524,6 +526,7 @@ testMultithreadedPoolGet (void)
   curl_easy_setopt (c, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
   curl_easy_setopt (c, CURLOPT_CONNECTTIMEOUT, 150L);
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   hdr_check.found_chunked = 0;
   hdr_check.found_footer = 0;
   curl_easy_setopt (c, CURLOPT_HEADERFUNCTION, lcurl_hdr_callback);
@@ -623,6 +626,7 @@ testExternalGet (void)
   curl_easy_setopt (c, CURLOPT_TIMEOUT, 150L);
   curl_easy_setopt (c, CURLOPT_CONNECTTIMEOUT, 5L);
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   hdr_check.found_chunked = 0;
   hdr_check.found_footer = 0;
   curl_easy_setopt (c, CURLOPT_HEADERFUNCTION, lcurl_hdr_callback);

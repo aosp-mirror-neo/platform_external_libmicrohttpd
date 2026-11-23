@@ -290,6 +290,7 @@ testWithoutTimeout (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   withoutTimeout = 0;
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
@@ -376,6 +377,7 @@ testWithTimeout (void)
    *   setting NOSIGNAL results in really weird
    *   crashes on my system! */
   curl_easy_setopt (c, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt (c, CURLOPT_PROXY, "");
   withTimeout = 0;
   if (CURLE_OK != (errornum = curl_easy_perform (c)))
   {
