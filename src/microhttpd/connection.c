@@ -6531,7 +6531,7 @@ get_req_header (struct MHD_Connection *c,
         do
           p++;
         while ((p < c->read_buffer_offset) &&
-               (((unsigned char) c->read_buffer[p]) > ' '));
+               (((unsigned char) c->read_buffer[p]) > ((unsigned char) ' ')));
         continue;
 #endif /* ! MHD_FAVOR_SMALL_CODE */
       }
