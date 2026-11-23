@@ -5959,7 +5959,7 @@ enum MHD_HdrLineReadRes_
  * @param chr character to test
  * @return true if character is allowed
  */
-static bool
+_MHD_static_inline bool
 char_legal_in_field_name (char chr)
 {
   switch (chr)
