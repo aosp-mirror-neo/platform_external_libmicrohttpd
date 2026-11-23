@@ -6523,15 +6523,41 @@ get_req_header (struct MHD_Connection *c,
         if (0 == c->rq.hdrs.hdr.value_start)
           c->rq.hdrs.hdr.value_start = p;
 #ifndef MHD_FAVOR_SMALL_CODE
-        c->rq.hdrs.hdr.ws_start = 0; /* Not on whitespace anymore */
-        /* The characters above the space character that follow are all
-           processed exactly as this one: skip them in one tight loop.
-           Everything else (CR, LF, whitespace, NUL, other control
-           characters) goes through the loop above. */
-        do
-          p++;
-        while ((p < c->read_buffer_offset) &&
-               (((unsigned char) c->read_buffer[p]) > ((unsigned char) ' ')));
+        /* A tight loop for processing long header (field) values */
+        while (1)
+        {
+          /* 'p' points to a non-whitespace character */
+          mhd_assert (' ' != c->read_buffer[p]);
+          mhd_assert ('\t' != c->read_buffer[p]);
+          c->rq.hdrs.hdr.ws_start = 0; /* Not on whitespace anymore */
+          while (c->read_buffer_offset > ++p)
+          {
+            /* Rough check for a non-whitespace and non-control character.
+               Quick processing only for the most common characters; other
+               characters are processed in the standard loop. */
+            if (((unsigned char) ' ') >= ((unsigned char) c->read_buffer[p]))
+              break;
+          }
+          if (c->read_buffer_offset <= p)
+            break;
+          if ((' ' != c->read_buffer[p]) && ('\t' != c->read_buffer[p]))
+            break; /* Not a whitespace character; re-process the current character in the standard loop */
+          /* Quick whitespace skipping loop */
+          c->rq.hdrs.hdr.ws_start = p;
+          while (c->read_buffer_offset > ++p)
+          {
+            if ((' ' != c->read_buffer[p]) && ('\t' != c->read_buffer[p]))
+              break; /* End of the whitespace sequence */
+          }
+          if (c->read_buffer_offset <= p)
+            break;
+          /* Rough check for a non-whitespace and non-control character.
+             Quick processing only for the most common characters; other
+             characters are processed in the standard loop. */
+          if (((unsigned char) ' ') >= ((unsigned char) c->read_buffer[p]))
+            break; /* Re-process the current character in the standard loop */
+          /* Continue in the tight loop for processing long header (field) values */
+        }
         continue;
 #endif /* ! MHD_FAVOR_SMALL_CODE */
       }
