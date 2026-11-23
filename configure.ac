@@ -5038,7 +5038,7 @@ AS_VAR_IF([enable_asserts],["auto"],
       [debug|debugger],
       [
         enable_asserts="yes"
-        use_asserts_MSG="yes, enabled by --enable-bulid-type=${enable_build_type}"
+        use_asserts_MSG="yes, enabled by --enable-build-type=${enable_build_type}"
       ],
       [
         enable_asserts="no"
