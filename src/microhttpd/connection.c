@@ -6476,7 +6476,15 @@ get_req_header (struct MHD_Connection *c,
                                             ERR_RSP_INVALID_CHAR_IN_FIELD_NAME);
             return MHD_HDR_LINE_READING_DATA_ERROR;
           }
-
+#ifndef MHD_FAVOR_SMALL_CODE
+          /* A tight loop for processing header (field) names */
+          while (c->read_buffer_offset > ++p)
+          {
+            if (! char_legal_in_field_name (c->read_buffer[p]))
+              break; /* Re-process the current character in the standard loop */
+          }
+          continue;
+#endif /* ! MHD_FAVOR_SMALL_CODE */
         }
         else
         {
