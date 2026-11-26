@@ -156,32 +156,32 @@
  *
  * @param response response to add a header to
  * @param kind header or footer
- * @param header the header string to add, must be malloc()'ed and
- *               zero-terminated
- * @param header_len the length of the @a header
- * @param content the value string to add, must be malloc()'ed and
- *                zero-terminated
- * @param content_len the length of the @a content
+ * @param name the header name string to add, must be malloc()'ed and
+ *             zero-terminated
+ * @param name_len the length of the @a name
+ * @param value the header value string to add, must be malloc()'ed and
+ *              zero-terminated
+ * @param value_len the length of the @a value
  */
 bool
 MHD_add_response_entry_no_alloc_ (struct MHD_Response *response,
                                   enum MHD_ValueKind kind,
-                                  char *header,
-                                  size_t header_len,
-                                  char *content,
-                                  size_t content_len)
+                                  char *name,
+                                  size_t name_len,
+                                  char *value,
+                                  size_t value_len)
 {
   struct MHD_HTTP_Res_Header *hdr;
 
-  mhd_assert (0 != header_len);
-  mhd_assert (0 != content_len);
+  mhd_assert (0 != name_len);
+  mhd_assert (0 != value_len);
   if (NULL == (hdr = MHD_calloc_ (1, sizeof (struct MHD_HTTP_Res_Header))))
     return false;
 
-  hdr->header = header;
-  hdr->header_size = header_len;
-  hdr->value = content;
-  hdr->value_size = content_len;
+  hdr->header = name;
+  hdr->header_size = name_len;
+  hdr->value = value;
+  hdr->value_size = value_len;
   hdr->kind = kind;
   _MHD_insert_header_last (response, hdr);
 
@@ -196,47 +196,47 @@ MHD_add_response_entry_no_alloc_ (struct MHD_Response *response,
  *
  * @param response response to add a header to
  * @param kind header or footer
- * @param header the header to add, does not need to be zero-terminated
- * @param header_len the length of the @a header
- * @param content value to add, does not need to be zero-terminated
- * @param content_len the length of the @a content
+ * @param name the header name to add, does not need to be zero-terminated
+ * @param name_len the length of the @a name
+ * @param value the header value to add, does not need to be zero-terminated
+ * @param value_len the length of the @a value
  * @return false on error (like out-of-memory),
  *         true if succeed
  */
 bool
 MHD_add_response_entry_no_check_ (struct MHD_Response *response,
                                   enum MHD_ValueKind kind,
-                                  const char *header,
-                                  size_t header_len,
-                                  const char *content,
-                                  size_t content_len)
+                                  const char *name,
+                                  size_t name_len,
+                                  const char *value,
+                                  size_t value_len)
 {
-  char *header_malloced;
+  char *name_malloced;
   char *value_malloced;
 
-  mhd_assert (0 != header_len);
-  mhd_assert (0 != content_len);
-  header_malloced = malloc (header_len + 1);
-  if (NULL == header_malloced)
+  mhd_assert (0 != name_len);
+  mhd_assert (0 != value_len);
+  name_malloced = malloc (name_len + 1);
+  if (NULL == name_malloced)
     return false;
 
-  memcpy (header_malloced, header, header_len);
-  header_malloced[header_len] = 0;
+  memcpy (name_malloced, name, name_len);
+  name_malloced[name_len] = 0;
 
-  value_malloced = malloc (content_len + 1);
+  value_malloced = malloc (value_len + 1);
   if (NULL != value_malloced)
   {
-    memcpy (value_malloced, content, content_len);
-    value_malloced[content_len] = 0;
+    memcpy (value_malloced, value, value_len);
+    value_malloced[value_len] = 0;
 
     if (MHD_add_response_entry_no_alloc_ (response, kind,
-                                          header_malloced, header_len,
-                                          value_malloced, content_len))
+                                          name_malloced, name_len,
+                                          value_malloced, value_len))
       return true; /* Success exit point */
 
     free (value_malloced);
   }
-  free (header_malloced);
+  free (name_malloced);
 
   return false; /* Failure exit point */
 }
@@ -245,42 +245,42 @@ MHD_add_response_entry_no_check_ (struct MHD_Response *response,
 /**
  * Add a header or footer line to the response.
  *
- * @param header the header to add, does not need to be zero-terminated
- * @param header_len the length of the @a header
- * @param content value to add, does not need to be zero-terminated
- * @param content_len the length of the @a content
- * @return false on error (out-of-memory, invalid header or content),
+ * @param name the header name to add, does not need to be zero-terminated
+ * @param name_len the length of the @a name
+ * @param value the header value to add, does not need to be zero-terminated
+ * @param value_len the length of the @a value
+ * @return false on error (out-of-memory, invalid name or value),
  *         true if succeed
  */
 static bool
 add_response_entry_n (struct MHD_Response *response,
                       enum MHD_ValueKind kind,
-                      const char *header,
-                      size_t header_len,
-                      const char *content,
-                      size_t content_len)
+                      const char *name,
+                      size_t name_len,
+                      const char *value,
+                      size_t value_len)
 {
   if (NULL == response)
     return false;
-  if (0 == header_len)
+  if (0 == name_len)
     return false;
-  if (0 == content_len)
+  if (0 == value_len)
     return false;
-  if (NULL != memchr (header, '\t', header_len))
+  if (NULL != memchr (name, '\t', name_len))
     return false;
-  if (NULL != memchr (header, ' ', header_len))
+  if (NULL != memchr (name, ' ', name_len))
     return false;
-  if (NULL != memchr (header, '\r', header_len))
+  if (NULL != memchr (name, '\r', name_len))
     return false;
-  if (NULL != memchr (header, '\n', header_len))
+  if (NULL != memchr (name, '\n', name_len))
     return false;
-  if (NULL != memchr (content, '\r', content_len))
+  if (NULL != memchr (value, '\r', value_len))
     return false;
-  if (NULL != memchr (content, '\n', content_len))
+  if (NULL != memchr (value, '\n', value_len))
     return false;
 
-  return MHD_add_response_entry_no_check_ (response, kind, header, header_len,
-                                           content, content_len);
+  return MHD_add_response_entry_no_check_ (response, kind, name, name_len,
+                                           value, value_len);
 }
 
 
@@ -289,28 +289,28 @@ add_response_entry_n (struct MHD_Response *response,
  *
  * @param response response to add a header to
  * @param kind header or footer
- * @param header the header to add
- * @param content value to add
- * @return #MHD_NO on error (i.e. invalid header or content format).
+ * @param name the header name to add
+ * @param value the header value to add
+ * @return #MHD_NO on error (i.e. invalid name or value format).
  */
 static enum MHD_Result
 add_response_entry (struct MHD_Response *response,
                     enum MHD_ValueKind kind,
-                    const char *header,
-                    const char *content)
+                    const char *name,
+                    const char *value)
 {
-  size_t header_len;
-  size_t content_len;
+  size_t name_len;
+  size_t value_len;
 
-  if (NULL == content)
+  if (NULL == value)
     return MHD_NO;
-  if (NULL == header)
+  if (NULL == name)
     return MHD_NO;
-  header_len = strlen (header);
-  content_len = strlen (content);
-  return add_response_entry_n (response, kind, header,
-                               header_len, content,
-                               content_len) ? MHD_YES : MHD_NO;
+  name_len = strlen (name);
+  value_len = strlen (value);
+  return add_response_entry_n (response, kind, name,
+                               name_len, value,
+                               value_len) ? MHD_YES : MHD_NO;
 }
 
 

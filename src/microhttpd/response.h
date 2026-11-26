@@ -80,20 +80,20 @@ MHD_get_response_element_n_ (struct MHD_Response *response,
  *
  * @param response response to add a header to
  * @param kind header or footer
- * @param header the header to add, does not need to be zero-terminated
- * @param header_len the length of the @a header
- * @param content value to add, does not need to be zero-terminated
- * @param content_len the length of the @a content
+ * @param name the header name to add, does not need to be zero-terminated
+ * @param name_len the length of the @a name
+ * @param value the header value to add, does not need to be zero-terminated
+ * @param value_len the length of the @a value
  * @return false on error (like out-of-memory),
  *         true if succeed
  */
 bool
 MHD_add_response_entry_no_check_ (struct MHD_Response *response,
                                   enum MHD_ValueKind kind,
-                                  const char *header,
-                                  size_t header_len,
-                                  const char *content,
-                                  size_t content_len);
+                                  const char *name,
+                                  size_t name_len,
+                                  const char *value,
+                                  size_t value_len);
 
 /**
  * Add preallocated strings a header or footer line to the response without
@@ -107,19 +107,19 @@ MHD_add_response_entry_no_check_ (struct MHD_Response *response,
  *
  * @param response response to add a header to
  * @param kind header or footer
- * @param header the header string to add, must be malloc()'ed and
- *               zero-terminated
- * @param header_len the length of the @a header
- * @param content the value string to add, must be malloc()'ed and
- *                zero-terminated
- * @param content_len the length of the @a content
+ * @param name the header name string to add, must be malloc()'ed and
+ *             zero-terminated
+ * @param name_len the length of the @a name
+ * @param value the header value string to add, must be malloc()'ed and
+ *              zero-terminated
+ * @param value_len the length of the @a value
  */
 bool
 MHD_add_response_entry_no_alloc_ (struct MHD_Response *response,
                                   enum MHD_ValueKind kind,
-                                  char *header,
-                                  size_t header_len,
-                                  char *content,
-                                  size_t content_len);
+                                  char *name,
+                                  size_t name_len,
+                                  char *value,
+                                  size_t value_len);
 
 #endif
