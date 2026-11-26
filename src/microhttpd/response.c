@@ -710,9 +710,9 @@ MHD_add_response_header (struct MHD_Response *response,
 /**
  * Add a footer line to the response.
  *
- * @param response response to remove a header from
- * @param footer the footer to delete
- * @param content value to delete
+ * @param response the response to add the footer to
+ * @param footer the name of the footer field to add
+ * @param content the value of the footer field to add
  * @return #MHD_NO on error (i.e. invalid footer or content format).
  * @ingroup response
  */
