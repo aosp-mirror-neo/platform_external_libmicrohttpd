@@ -782,36 +782,41 @@ MHD_del_response_header (struct MHD_Response *response,
                       content_len)))
     {
       _MHD_remove_header (response, pos);
+      if (MHD_HEADER_KIND == pos->kind)
+      {
+        if ( (MHD_STATICSTR_LEN_ (MHD_HTTP_HEADER_TRANSFER_ENCODING) ==
+              header_len) &&
+             MHD_str_equal_caseless_bin_n_ (header,
+                                            MHD_HTTP_HEADER_TRANSFER_ENCODING,
+                                            header_len) )
+          response->flags_auto &=
+            ~((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_TRANS_ENC_CHUNKED);
+        else if ( (MHD_STATICSTR_LEN_ (MHD_HTTP_HEADER_DATE) ==
+                   header_len) &&
+                  MHD_str_equal_caseless_bin_n_ (header,
+                                                 MHD_HTTP_HEADER_DATE,
+                                                 header_len) )
+          response->flags_auto &=
+            ~((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_DATE_HDR);
+        else if ( (MHD_STATICSTR_LEN_ (MHD_HTTP_HEADER_CONTENT_LENGTH) ==
+                   header_len) &&
+                  MHD_str_equal_caseless_bin_n_ (
+                    header,
+                    MHD_HTTP_HEADER_CONTENT_LENGTH,
+                    header_len) )
+        {
+          if (NULL
+              == MHD_get_response_element_n_ (response,
+                                              MHD_HEADER_KIND,
+                                              MHD_HTTP_HEADER_CONTENT_LENGTH,
+                                              header_len))
+            response->flags_auto &=
+              ~((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_CONTENT_LENGTH);
+        }
+      }
       free (pos->header);
       free (pos->value);
       free (pos);
-      if ( (MHD_STATICSTR_LEN_ (MHD_HTTP_HEADER_TRANSFER_ENCODING) ==
-            header_len) &&
-           MHD_str_equal_caseless_bin_n_ (header,
-                                          MHD_HTTP_HEADER_TRANSFER_ENCODING,
-                                          header_len) )
-        response->flags_auto &=
-          ~((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_TRANS_ENC_CHUNKED);
-      else if ( (MHD_STATICSTR_LEN_ (MHD_HTTP_HEADER_DATE) ==
-                 header_len) &&
-                MHD_str_equal_caseless_bin_n_ (header,
-                                               MHD_HTTP_HEADER_DATE,
-                                               header_len) )
-        response->flags_auto &=
-          ~((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_DATE_HDR);
-      else if ( (MHD_STATICSTR_LEN_ (MHD_HTTP_HEADER_CONTENT_LENGTH) ==
-                 header_len) &&
-                MHD_str_equal_caseless_bin_n_ (header,
-                                               MHD_HTTP_HEADER_CONTENT_LENGTH,
-                                               header_len) )
-      {
-        if (NULL == MHD_get_response_element_n_ (response,
-                                                 MHD_HEADER_KIND,
-                                                 MHD_HTTP_HEADER_CONTENT_LENGTH,
-                                                 header_len))
-          response->flags_auto &=
-            ~((enum MHD_ResponseAutoFlags) MHD_RAF_HAS_CONTENT_LENGTH);
-      }
       return MHD_YES;
     }
     pos = pos->next;
