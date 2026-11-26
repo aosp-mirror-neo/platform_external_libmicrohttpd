@@ -652,29 +652,35 @@ MHD_add_response_header (struct MHD_Response *response,
   if (MHD_str_equal_caseless_ (header,
                                MHD_HTTP_HEADER_DATE))
   {
+    struct MHD_HTTP_Res_Header *old_hdr;
+
+    old_hdr = NULL;
     if (0 != (response->flags_auto & MHD_RAF_HAS_DATE_HDR))
     {
-      struct MHD_HTTP_Res_Header *hdr;
-      hdr = MHD_get_response_element_n_ (response, MHD_HEADER_KIND,
-                                         MHD_HTTP_HEADER_DATE,
-                                         MHD_STATICSTR_LEN_ ( \
-                                           MHD_HTTP_HEADER_DATE));
-      mhd_assert (NULL != hdr);
-      _MHD_remove_header (response, hdr);
-      if (NULL != hdr->value)
-        free (hdr->value);
-      free (hdr->header);
-      free (hdr);
+      old_hdr =
+        MHD_get_response_element_n_ (response, MHD_HEADER_KIND,
+                                     MHD_HTTP_HEADER_DATE,
+                                     MHD_STATICSTR_LEN_ (MHD_HTTP_HEADER_DATE));
+      mhd_assert (NULL != old_hdr);
     }
-    if (MHD_NO != add_response_entry (response,
+
+    if (MHD_NO == add_response_entry (response,
                                       MHD_HEADER_KIND,
                                       header,
                                       content))
+      return MHD_NO;
+
+    response->flags_auto |= MHD_RAF_HAS_DATE_HDR;
+
+    if (NULL != old_hdr)
     {
-      response->flags_auto |= MHD_RAF_HAS_DATE_HDR;
-      return MHD_YES;
+      _MHD_remove_header (response, old_hdr);
+      if (NULL != old_hdr->value)
+        free (old_hdr->value);
+      free (old_hdr->header);
+      free (old_hdr);
     }
-    return MHD_NO;
+    return MHD_YES;
   }
 
   if (MHD_str_equal_caseless_ (header,
