@@ -302,10 +302,6 @@ add_response_entry (struct MHD_Response *response,
   size_t name_len;
   size_t value_len;
 
-  if (NULL == value)
-    return MHD_NO;
-  if (NULL == name)
-    return MHD_NO;
   name_len = strlen (name);
   value_len = strlen (value);
   return add_response_entry_n (response, kind, name,
@@ -759,9 +755,6 @@ MHD_del_response_header (struct MHD_Response *response,
   size_t header_len;
   size_t content_len;
 
-  if ( (NULL == header) ||
-       (NULL == content) )
-    return MHD_NO;
   header_len = strlen (header);
 
   if ((0 != (response->flags_auto & MHD_RAF_HAS_CONNECTION_HDR)) &&
