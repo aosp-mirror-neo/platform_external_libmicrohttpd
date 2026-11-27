@@ -470,7 +470,7 @@ static struct Page pages[] = {
   { "/2", "text/html", &fill_v1_v2_form, NULL },
   { "/S", "text/html", &serve_simple_form, SUBMIT_PAGE },
   { "/F", "text/html", &serve_simple_form, LAST_PAGE },
-  { NULL, NULL, &not_found_page, NULL }   /* 404 */
+  { NULL, "text/html", &not_found_page, NULL }   /* 404 */
 };
 
 
