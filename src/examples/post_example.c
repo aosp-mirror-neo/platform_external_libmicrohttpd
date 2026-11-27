@@ -446,9 +446,6 @@ not_found_page (const void *cls,
                                             (const void *) NOT_FOUND_ERROR);
   if (NULL == response)
     return MHD_NO;
-  ret = MHD_queue_response (connection,
-                            MHD_HTTP_NOT_FOUND,
-                            response);
   if (MHD_YES !=
       MHD_add_response_header (response,
                                MHD_HTTP_HEADER_CONTENT_ENCODING,
@@ -457,6 +454,9 @@ not_found_page (const void *cls,
     fprintf (stderr,
              "Failed to set content encoding header!\n");
   }
+  ret = MHD_queue_response (connection,
+                            MHD_HTTP_NOT_FOUND,
+                            response);
   MHD_destroy_response (response);
   return ret;
 }
