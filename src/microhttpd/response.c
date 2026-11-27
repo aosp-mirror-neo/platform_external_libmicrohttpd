@@ -270,6 +270,8 @@ add_response_entry_n (struct MHD_Response *response,
     return false;
   if (NULL != memchr (name, ' ', name_len))
     return false;
+  if (NULL != memchr (name, ':', name_len))
+    return false;
   if (NULL != memchr (name, '\r', name_len))
     return false;
   if (NULL != memchr (name, '\n', name_len))
