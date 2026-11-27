@@ -101,7 +101,7 @@ MHD_C_DECLRATIONS_START_HERE_
  * they are parsed as decimal numbers.
  * Example: 0x01093001 = 1.9.30-1.
  */
-#define MHD_VERSION 0x01001103
+#define MHD_VERSION 0x01001104
 
 /* If generic headers don't work on your platform, include headers
    which define 'va_list', 'size_t', 'ssize_t', 'intptr_t', 'off_t',
@@ -4607,11 +4607,13 @@ MHD_destroy_response (struct MHD_Response *response);
  * * "Content-Length" application-defined header is not allowed.
  *   @see #MHD_RF_INSANITY_HEADER_CONTENT_LENGTH
  *
+ * Empty value is not accepted for these pre-processed headers.
+ *
  * Headers are used in order as they were added.
  *
  * @param response the response to add a header to
  * @param header the header name to add
- * @param content the header value to add
+ * @param content the header value to add, can be an empty string
  * @return #MHD_YES on success,
  *         #MHD_NO on error (i.e. invalid header or content format),
  *         or out of memory
@@ -4630,7 +4632,7 @@ MHD_add_response_header (struct MHD_Response *response,
  *
  * @param response the response to add the footer to
  * @param footer the footer name to add
- * @param content the footer value to add
+ * @param content the footer value to add, can be an empty string
  * @return #MHD_NO on error (i.e. invalid footer or content format).
  * @ingroup response
  */

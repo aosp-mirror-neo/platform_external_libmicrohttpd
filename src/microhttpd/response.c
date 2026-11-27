@@ -174,7 +174,6 @@ MHD_add_response_entry_no_alloc_ (struct MHD_Response *response,
   struct MHD_HTTP_Res_Header *hdr;
 
   mhd_assert (0 != name_len);
-  mhd_assert (0 != value_len);
   if (NULL == (hdr = MHD_calloc_ (1, sizeof (struct MHD_HTTP_Res_Header))))
     return false;
 
@@ -215,7 +214,6 @@ MHD_add_response_entry_no_check_ (struct MHD_Response *response,
   char *value_malloced;
 
   mhd_assert (0 != name_len);
-  mhd_assert (0 != value_len);
   name_malloced = malloc (name_len + 1);
   if (NULL == name_malloced)
     return false;
@@ -263,8 +261,6 @@ add_response_entry_n (struct MHD_Response *response,
   if (NULL == response)
     return false;
   if (0 == name_len)
-    return false;
-  if (0 == value_len)
     return false;
   if (NULL != memchr (name, '\t', name_len))
     return false;
@@ -609,11 +605,13 @@ del_response_header_connection (struct MHD_Response *response,
  * * "Content-Length" application-defined header is not allowed.
  *   @see #MHD_RF_INSANITY_HEADER_CONTENT_LENGTH
  *
+ * Empty value is not accepted for these pre-processed headers.
+ *
  * Headers are used in order as they were added.
  *
  * @param response the response to add a header to
  * @param header the header name to add
- * @param content the header value to add
+ * @param content the header value to add, can be an empty string
  * @return #MHD_YES on success,
  *         #MHD_NO on error (i.e. invalid header or content format),
  *         or out of memory
@@ -651,6 +649,11 @@ MHD_add_response_header (struct MHD_Response *response,
                                MHD_HTTP_HEADER_DATE))
   {
     struct MHD_HTTP_Res_Header *old_hdr;
+
+    /* The value is HTTP-date and cannot be empty.
+       See RFC 9110, Section 6.6.1 */
+    if ('\0' == content[0])
+      return MHD_NO;
 
     old_hdr = NULL;
     if (0 != (response->flags_auto & MHD_RAF_HAS_DATE_HDR))
@@ -692,6 +695,10 @@ MHD_add_response_header (struct MHD_Response *response,
           (0 == (response->flags_auto & (MHD_RAF_HAS_TRANS_ENC_CHUNKED
                                          | MHD_RAF_HAS_CONTENT_LENGTH)))) )
     {
+      /* The value is 1*DIGIT and cannot be empty.
+         See RFC 9110, Section 8.6 */
+      if ('\0' == content[0])
+        return MHD_NO;
       if (MHD_NO != add_response_entry (response,
                                         MHD_HEADER_KIND,
                                         header,
@@ -718,7 +725,7 @@ MHD_add_response_header (struct MHD_Response *response,
  *
  * @param response the response to add the footer to
  * @param footer the footer name to add
- * @param content the footer value to add
+ * @param content the footer value to add, can be an empty string
  * @return #MHD_NO on error (i.e. invalid footer or content format).
  * @ingroup response
  */

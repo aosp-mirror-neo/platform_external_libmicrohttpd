@@ -147,8 +147,41 @@ main (int argc,
     return 2;
   }
 
+  if ((MHD_YES != MHD_add_response_header (r, "Empty-Header", "")) ||
+      (! expect_str (MHD_get_response_header (r, "Empty-Header"), "")) ||
+      (MHD_YES != MHD_del_response_header (r, "Empty-Header", "")) ||
+      (! expect_str (MHD_get_response_header (r, "Empty-Header"), NULL)))
+  {
+    fprintf (stderr, "Cannot handle a response header with an empty value.\n");
+    MHD_destroy_response (r);
+    return 2;
+  }
+  if ((MHD_YES != MHD_add_response_footer (r, "Empty-Footer", "")) ||
+      (! expect_str (MHD_get_response_header (r, "Empty-Footer"), "")) ||
+      (MHD_YES != MHD_del_response_header (r, "Empty-Footer", "")) ||
+      (! expect_str (MHD_get_response_header (r, "Empty-Footer"), NULL)))
+  {
+    fprintf (stderr, "Cannot handle a response footer with an empty value.\n");
+    MHD_destroy_response (r);
+    return 2;
+  }
+  if ((MHD_NO != MHD_add_response_header (r, "", "value")) ||
+      (MHD_NO != MHD_add_response_footer (r, "", "value")))
+  {
+    fprintf (stderr, "Accepted a response field with an empty name.\n");
+    MHD_destroy_response (r);
+    return 2;
+  }
+
   /* ** Test "Connection:" header ** */
 
+  if ((MHD_NO != MHD_add_response_header (r, "Connection", "")) ||
+      (! expect_str (MHD_get_response_header (r, "Connection"), NULL)))
+  {
+    fprintf (stderr, "Accepted an empty \"Connection\" header value.\n");
+    MHD_destroy_response (r);
+    return 3;
+  }
   if (MHD_YES != MHD_add_response_header (r, "Connection", "a,b,c,d,e"))
   {
     fprintf (stderr, "Cannot add \"Connection\" header with simple values.\n");
@@ -157,6 +190,15 @@ main (int argc,
   }
   if (! expect_str (MHD_get_response_header (r, "Connection"), "a, b, c, d, e"))
   {
+    MHD_destroy_response (r);
+    return 3;
+  }
+  if ((MHD_NO != MHD_add_response_header (r, "Connection", "")) ||
+      (! expect_str (MHD_get_response_header (r, "Connection"),
+                     "a, b, c, d, e")))
+  {
+    fprintf (stderr, "Accepted an empty value for existing "
+             "\"Connection\" header.\n");
     MHD_destroy_response (r);
     return 3;
   }
@@ -789,6 +831,12 @@ main (int argc,
     MHD_destroy_response (r);
     return 5;
   }
+  if (MHD_NO != MHD_add_response_header (r, "Date", ""))
+  {
+    fprintf (stderr, "Accepted an empty \"Date\" header value.\n");
+    MHD_destroy_response (r);
+    return 5;
+  }
   if (! expect_str (MHD_get_response_header (r, "Date"),
                     "Wed, 01 Apr 2015 00:00:00 GMT"))
   {
@@ -855,6 +903,15 @@ main (int argc,
     return 6;
   }
   if (MHD_NO != MHD_add_response_header (r, MHD_HTTP_HEADER_TRANSFER_ENCODING,
+                                         ""))
+  {
+    fprintf (stderr,
+             "Successfully added \"" MHD_HTTP_HEADER_TRANSFER_ENCODING \
+             "\" header with an empty value.\n");
+    MHD_destroy_response (r);
+    return 6;
+  }
+  if (MHD_NO != MHD_add_response_header (r, MHD_HTTP_HEADER_TRANSFER_ENCODING,
                                          "identity"))
   {
     fprintf (stderr,
@@ -887,6 +944,21 @@ main (int argc,
   }
 
   MHD_destroy_response (r);
+
+  r = MHD_create_response_empty (MHD_RF_HEAD_ONLY_RESPONSE);
+  if (NULL == r)
+  {
+    fprintf (stderr, "Cannot create a HEAD-only response.\n");
+    return 7;
+  }
+  if (MHD_NO != MHD_add_response_header (r, MHD_HTTP_HEADER_CONTENT_LENGTH, ""))
+  {
+    fprintf (stderr, "Accepted an empty \"Content-Length\" header value.\n");
+    MHD_destroy_response (r);
+    return 7;
+  }
+  MHD_destroy_response (r);
+
   printf ("All tests has been successfully passed.\n");
   return 0;
 }

@@ -2211,7 +2211,10 @@ Return @code{NULL} on error (i.e. invalid arguments, out of memory).
 Add a header line to the response. The strings @var{header} and
 @var{content} are copied to the response.
 
-The field name and value must be non-empty and conform to HTTP field syntax.
+The field name must be non-empty. The field value can be an empty string.
+Both must conform to HTTP field syntax.  Empty value is not accepted for
+``Connection'', ``Transfer-Encoding'', ``Date'' and ``Content-Length''
+headers.
 
 MHD_add_response_header() prevents applications from setting a
 ``Transfer-Encoding'' header to values other than ``identity'' or
@@ -2233,7 +2236,8 @@ memory allocation error).
 Add a footer line to the response. The strings @var{footer} and
 @var{content} are copied to the response.
 
-The field name and value must be non-empty and conform to HTTP field syntax.
+The field name must be non-empty. The field value can be an empty string.
+Both must conform to HTTP field syntax.
 
 You can add response footers at any time before signalling the
 end of the response to MHD (not just before calling 'MHD_queue_response').
