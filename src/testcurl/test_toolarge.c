@@ -521,12 +521,8 @@ ahcCheck (void *cls,
     large_hrd_name = malloc (large_hdr_name_size + 1);
     if (NULL == large_hrd_name)
       externalErrorExit ();
-    if (0 != large_hdr_value_size)
-      large_hrd_value = malloc (large_hdr_value_size + 1);
-    else
-      large_hrd_value = NULL;
-
-    if ((0 != large_hdr_value_size) && (NULL == large_hrd_value))
+    large_hrd_value = malloc (large_hdr_value_size + 1);
+    if (NULL == large_hrd_value)
       externalErrorExit ();
     large_hrd_name[0] = '0'; /* Name starts with zero for unique identification */
     for (i = 1; i < large_hdr_name_size; i++)
@@ -534,15 +530,13 @@ ahcCheck (void *cls,
     large_hrd_name[large_hdr_name_size] = 0;
     for (i = 0; i < large_hdr_value_size; i++)
       large_hrd_value[i] = 'Z' - (char) (unsigned char) (i % ('Z' - 'A' + 1));
-    if (NULL != large_hrd_value)
-      large_hrd_value[large_hdr_value_size] = 0;
+    large_hrd_value[large_hdr_value_size] = 0;
     if (MHD_YES != MHD_add_response_header (response,
                                             large_hrd_name,
                                             large_hrd_value))
       mhdErrorExitDesc ("Cannot add large header");
 
-    if (NULL != large_hrd_value)
-      free (large_hrd_value);
+    free (large_hrd_value);
     free (large_hrd_name);
   }
 
