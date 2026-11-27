@@ -2208,12 +2208,10 @@ Return @code{NULL} on error (i.e. invalid arguments, out of memory).
 
 
 @deftypefun enum MHD_Result MHD_add_response_header (struct MHD_Response *response, const char *header, const char *content)
-Add a header line to the response. The strings referenced by
-@var{header} and @var{content} must be zero-terminated and they are
-duplicated into memory blocks embedded in @var{response}.
+Add a header line to the response. The strings @var{header} and
+@var{content} are copied to the response.
 
-Notice that the strings must not hold newlines, carriage returns or tab
-chars.
+The field name and value must be non-empty and conform to HTTP field syntax.
 
 MHD_add_response_header() prevents applications from setting a
 ``Transfer-Encoding'' header to values other than ``identity'' or
@@ -2232,12 +2230,12 @@ memory allocation error).
 
 
 @deftypefun enum MHD_Result MHD_add_response_footer (struct MHD_Response *response, const char *footer, const char *content)
-Add a footer line to the response. The strings referenced by
-@var{footer} and @var{content} must be zero-terminated and they are
-duplicated into memory blocks embedded in @var{response}.
+Add a footer line to the response. The strings @var{footer} and
+@var{content} are copied to the response.
 
-Notice that the strings must not hold newlines, carriage returns or tab
-chars.  You can add response footers at any time before signalling the
+The field name and value must be non-empty and conform to HTTP field syntax.
+
+You can add response footers at any time before signalling the
 end of the response to MHD (not just before calling 'MHD_queue_response').
 Footers are useful for adding cryptographic checksums to the reply or to
 signal errors encountered during data generation.  This call was introduced
@@ -2250,8 +2248,13 @@ memory allocation error).
 
 
 @deftypefun enum MHD_Result MHD_del_response_header (struct MHD_Response *response, const char *header, const char *content)
-Delete a header (or footer) line from the response.  Return @code{MHD_NO} on error
-(arguments are invalid or no such header known).
+Delete a header (or footer) line from the response.  For a ``Connection''
+header, @var{content} lists the tokens to remove.  The header is deleted
+if no tokens remain.
+
+Return @code{MHD_YES} if the header (or footer) or at least one
+``Connection'' token has been removed, @code{MHD_NO} if no such header
+(or footer) or token is found.
 @end deftypefun
 
 

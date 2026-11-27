@@ -4571,6 +4571,8 @@ MHD_destroy_response (struct MHD_Response *response);
 /**
  * Add a header line to the response.
  *
+ * The strings @a header and @a content are copied to the response.
+ *
  * When reply is generated with queued response, some headers are generated
  * automatically. Automatically generated headers are only sent to the client,
  * but not added back to the response object.
@@ -4608,10 +4610,8 @@ MHD_destroy_response (struct MHD_Response *response);
  * Headers are used in order as they were added.
  *
  * @param response the response to add a header to
- * @param header the header name to add, no need to be static, an internal copy
- *               will be created automatically
- * @param content the header value to add, no need to be static, an internal
- *                copy will be created automatically
+ * @param header the header name to add
+ * @param content the header value to add
  * @return #MHD_YES on success,
  *         #MHD_NO on error (i.e. invalid header or content format),
  *         or out of memory
@@ -4626,9 +4626,11 @@ MHD_add_response_header (struct MHD_Response *response,
 /**
  * Add a footer line to the response.
  *
+ * The strings @a footer and @a content are copied to the response.
+ *
  * @param response the response to add the footer to
- * @param footer the name of the footer field to add
- * @param content the value of the footer field to add
+ * @param footer the footer name to add
+ * @param content the footer value to add
  * @return #MHD_NO on error (i.e. invalid footer or content format).
  * @ingroup response
  */
@@ -4641,15 +4643,15 @@ MHD_add_response_footer (struct MHD_Response *response,
 /**
  * Delete a header (or footer) line from the response.
  *
- * For "Connection" headers this function remove all tokens from existing
- * value. Successful result means that at least one token has been removed.
- * If all tokens are removed from "Connection" header, the empty "Connection"
- * header removed.
+ * For a "Connection" header, @a content lists the tokens to remove.
+ * The header is deleted if no tokens remain.
  *
- * @param response response to remove a header from
- * @param header the header to delete
- * @param content value to delete
- * @return #MHD_NO on error (no such header known)
+ * @param response the response to remove a header from
+ * @param header the name of the header (or footer) to delete
+ * @param content the value of the header (or footer) to delete
+ * @return #MHD_YES if the header (or footer) or at least one "Connection"
+ *         token has been removed,
+ *         #MHD_NO if no such header (or footer) or token is found
  * @ingroup response
  */
 _MHD_EXTERN enum MHD_Result
