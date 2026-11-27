@@ -2217,11 +2217,10 @@ Both must conform to HTTP field syntax.  Empty value is not accepted for
 headers.
 
 MHD_add_response_header() prevents applications from setting a
-``Transfer-Encoding'' header to values other than ``identity'' or
-``chunked'' as other transfer encodings are not supported by MHD. Note
-that usually MHD will pick the transfer encoding correctly
-automatically, but applications can use the header to force a
-particular behavior.
+``Transfer-Encoding'' header to values other than ``chunked'' as other
+transfer encodings are not supported by MHD. Note that usually MHD will
+pick the transfer encoding correctly automatically, but applications
+can use the header to force a particular behaviour.
 
 MHD_add_response_header() also prevents applications from setting a
 ``Content-Length'' header. MHD will automatically set a correct
